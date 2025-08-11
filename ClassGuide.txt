@@ -5,108 +5,297 @@ class_descriptions = """
 This document provides a brief description of each class in the OptiSolve.NET project to help guide development within your group.
 
 ---
+## 📁 Analysis/
+
+### SensitivityAnalyser.cs
+- Main coordinator for all sensitivity analysis operations
+- Orchestrates range analysis, variable changes, and constraint modifications
+- Interfaces with other analysis components for comprehensive sensitivity reporting
+
+### DualityAnalyser.cs
+- Constructs and solves the dual of a given LP model
+- Verifies strong/weak duality relationships
+- Compares primal and dual optimal solutions for validation
+
+### RangeAnalyser.cs
+- Calculates allowable ranges for basic and non-basic variables
+- Determines RHS constraint ranges while maintaining optimality
+- Provides coefficient sensitivity ranges for objective function
+
+### ShadowPriceCalculator.cs
+- Computes shadow prices (dual values) for all constraints
+- Interprets economic meaning of constraint changes
+- Provides marginal value analysis for resource allocation
+
+---
 
 ## 📁 Controller/
 
 ### SolverController.cs
-- Orchestrates the solving process based on menu selections.
-- Calls appropriate solver classes depending on algorithm choice.
-- Routes between input parsing, solving, output writing, and display.
+- Main application orchestrator that coordinates all solving operations
+- Routes between input parsing, algorithm selection, solving, and output generation
+- Manages the flow from user input through to final results display
+- Handles algorithm selection based on model type and user preferences
 
 ---
 
 ## 📁 Core/
 
 ### LPModel.cs
-- Represents the entire LP/IP model.
-- Stores objective type, list of variables, and list of constraints.
+- Central representation of the entire LP/IP optimization model
+- Stores objective type (max/min), complete variable list, and constraint set
+- Provides model validation and canonical form conversion capabilities
 
 ### Variable.cs
-- Represents a single decision variable.
-- Stores index, name, coefficient in the objective function, and type (binary, integer, etc.).
+- Represents individual decision variables with all properties
+- Stores variable index, name, objective coefficient, and type constraints
+- Manages variable bounds and sign restrictions (positive, negative, unrestricted)
 
 ### Constraint.cs
-- Represents a single constraint in the model.
-- Stores LHS coefficients, relation type (<=, =, >=), and RHS value.
+- Encapsulates individual model constraints with full specification
+- Contains LHS technological coefficients, relation operator, and RHS value
+- Provides constraint manipulation and validation methods
 
 ### Enum.cs
-- Contains enumerations used across the app:
+- Centralized enumeration definitions used throughout the application:
   - ObjectiveType (Maximize, Minimize)
-  - ConstraintRelation (<=, =, >=)
-  - VariableType (Continuous, Integer, Binary, Unrestricted)
+  - ConstraintRelation: LessThanOrEqual, Equal, GreaterThanOrEqual
+  - VariableType: Continuous, Integer, Binary, Unrestricted
+  - SolutionStatus: Optimal, Infeasible, Unbounded, Degenerate
+
+---
+
+## 📁 Exceptions/
+
+### InfeasibleSolutionException.cs
+- Thrown when the optimization model has no feasible solution
+- Provides specific details about infeasibility causes and detection point
+
+### UnboundedSolutionException.cs
+- Raised when the objective function can be improved without bound
+- Includes information about the unbounded direction and variable
+
+### InvalidInputException.cs
+- Handles all input file parsing and validation errors
+- Provides detailed error messages for format violations and data inconsistencies
+
+### AlgorithmException.cs
+- General exception for algorithm-specific errors during execution
+- Captures computational issues, numerical instability, or implementation problems
 
 ---
 
 ## 📁 IO/
 
 ### InputParser.cs
-- Reads and parses input files according to the required format.
-- Builds and returns an LPModel object.
-- Handles formatting errors and validation.
+- Comprehensive input file reader supporting the specified format
+- Parses objective function, constraints, and variable restrictions
+- Builds validated LPModel objects with error reporting and recovery
 
 ### OutputWriter.cs
-- Writes solver results to output files.
-- Includes canonical form, all iteration steps, and final solution.
-- Rounds all numeric values to 3 decimal places.
+- Generates formatted output files with complete solution documentation
+- Writes canonical forms, iteration histories, and final optimal solutions
+- Ensures all numeric values are properly rounded to 3 decimal places
+
+---
+
+## 📁 Models/
+
+### Analysis/
+
+#### DualSolution.cs
+- Encapsulates complete dual problem solution with optimal values
+- Stores dual variable values, reduced costs, and optimality verification
+
+#### SensitivityRange.cs
+- Contains allowable ranges for variables and constraints
+- Provides lower and upper bounds while maintaining current optimal basis
+
+#### ShadowPrice.cs
+- Represents shadow price information for individual constraints
+- Includes marginal values, interpretation, and validity ranges
+
+### Solution/
+
+#### OptimalSolution.cs
+- Complete optimal solution representation with all solution details
+- Contains variable values, objective value, basis information, and solution status
+
+#### IterationResult.cs
+- Captures individual algorithm iteration data for step-by-step tracking
+- Stores tableau states, pivot information, and iteration-specific calculations
+
+#### SolutionStatus.cs
+- Comprehensive solution status information including feasibility and optimality
+- Tracks solution quality, degeneracy, and convergence information
+
+### Tableau/
+
+#### SimplexTableau.cs
+- Full simplex tableau representation with row and column operations
+- Manages tableau manipulations, pivot operations, and optimality testing
+
+#### TableauRow.cs
+- Individual tableau row with specialized operations and calculations
+- Handles row operations, ratio tests, and feasibility checking
+
+#### TableauColumn.cs
+- Tableau column operations and entering variable selection
+- Manages column pivoting, reduced cost calculations, and optimality conditions
 
 ---
 
 ## 📁 Services/
 
-### SimplexSolver.cs
-- Solves LP problems using the Primal Simplex Algorithm.
-- Displays canonical form and full tableau iterations.
+### Base/
 
-### RevisedSimplexSolver.cs
-- Solves LPs using the Revised Primal Simplex Algorithm.
-- Uses matrix/vector operations and displays product form and price-out steps.
+#### ISolver.cs
+- Base interface defining common solver contract for all algorithms
+- Ensures consistent method signatures and return types across implementations
 
-### BranchBoundSolver.cs
-- Solves Integer Programming models using Branch and Bound.
-- Creates and solves subproblems, applies backtracking, and selects the best candidate.
+#### SolverBase.cs
+- Abstract base class providing common functionality for all solvers
+- Implements shared operations like model validation and result formatting
 
-### CuttingPlaneSolver.cs
-- Solves IPs using the Cutting Plane method.
-- Adds cuts to eliminate non-integer solutions and displays iterations.
+#### SolutionResult.cs
+- Generic solution result container used by all solver implementations
+- Standardizes return format with solution data, status, and iteration information
 
-### KnapsackSolver.cs
-- Specialized solver for binary Knapsack problems using Branch and Bound.
+### Simplex/
 
-### DualSolver.cs
-- Constructs and solves the dual of a given LP model.
-- Verifies strong/weak duality.
+#### SimplexSolver.cs
+- Standard Primal Simplex Algorithm implementation with full tableau display
+- Shows canonical form conversion and complete iteration history
+- Handles degeneracy, cycling prevention, and optimality detection
 
-### SensitivityAnalyser.cs
-- Performs sensitivity analysis:
-  - Variable ranges and RHS variation
-  - Shadow prices
-  - Adds constraints and activities to optimal solutions
+#### RevisedSimplexSolver.cs
+- Revised Primal Simplex using matrix operations and compact representation
+- Displays Product Form of Inverse and Price Out iterations
+- Optimized for larger problems with efficient matrix operations
+
+#### SimplexTableau.cs
+- Specialized tableau operations specific to simplex method
+- Handles pivot selection, tableau updates, and optimality testing
+
+### BranchAndBound/
+
+#### BranchBoundSimplex.cs
+- Branch and Bound implementation using Simplex for LP relaxations
+- Creates complete enumeration tree with systematic branching strategy
+- Implements intelligent fathoming and best-first search
+
+#### BranchBoundKnapsack.cs
+- Specialized Branch and Bound for binary knapsack problems
+- Uses knapsack-specific bounds and branching rules for efficiency
+- Optimized for 0-1 knapsack problem structure
+
+#### BranchNode.cs
+- Individual node representation in the Branch and Bound tree
+- Stores partial solution, bounds, branching variable, and parent relationships
+- Manages node status (active, fathomed, optimal) and solution inheritance
+
+### CuttingPlane/
+
+#### CuttingPlaneSolver.cs
+- Cutting Plane Algorithm implementation using Gomory cuts
+- Iteratively adds cuts to eliminate fractional solutions
+- Displays cut generation and tableau modifications at each iteration
+
+#### CuttingPlaneTableau.cs
+- Specialized tableau for cutting plane operations
+- Handles cut row generation, addition to tableau, and solution tracking
+
+### Knapsack/
+
+#### KnapsackSolver.cs
+- Dedicated knapsack problem solver with multiple algorithm options
+- Implements both dynamic programming and branch-and-bound approaches
+- Optimized for binary knapsack problem characteristics
+
+#### KnapsackItem.cs
+- Represents individual items in knapsack problems
+- Stores weight, value, efficiency ratio, and selection status
+- Provides item comparison and sorting capabilities
 
 ---
 
 ## 📁 UI/
 
 ### Menu.cs
-- Displays the main menu and gets user input.
-- Sends control to the SolverController.
+- Interactive menu system with algorithm selection and option handling
+- Provides clear user interface for algorithm choice and parameter input
+- Manages user navigation through sensitivity analysis options
 
 ### DisplayHelper.cs
-- Formats and displays solver results to the console.
-- Utility for clean and consistent output formatting.
+- Comprehensive output formatting utilities for consistent presentation
+- Handles tableau display, iteration formatting, and result presentation
+- Ensures professional output formatting across all components
+
+---
+
+## 📁 Utilities/
+
+### MathHelper.cs
+- Mathematical utility functions for optimization calculations
+- Provides fraction handling, precision management, and numerical stability
+- Common mathematical operations used across multiple algorithms
+
+### MatrixOperations.cs
+- Comprehensive matrix manipulation library for revised simplex and advanced operations
+- Handles matrix inversion, multiplication, LU decomposition, and numerical stability
+- Optimized operations for tableau and basis management
+
+### Validator.cs
+- Input validation utilities ensuring data integrity and format compliance
+- Validates model consistency, constraint feasibility, and variable bounds
+- Provides detailed validation reports and error correction suggestions
+
+### ErrorHandler.cs
+- Centralized error handling and logging system
+- Manages exception propagation, error recovery, and user feedback
+- Provides consistent error reporting across all application components
+
+---
+
+## 📁 Tests/
+
+### TestData/
+
+#### sample_lp.txt / sample_ip.txt
+- Standardized test cases for algorithm validation
+- Covers various problem types: maximization, minimization, binary, integer
+- Includes edge cases: infeasible, unbounded, and degenerate problems
+
+#### ExpectedOutputs/
+- Reference solutions for test case validation
+- Enables automated testing and algorithm verification
+- Supports regression testing during development
 
 ---
 
 ## 📄 Program.cs
-- Entry point of the application.
-- Initializes menu system and starts the app loop.
+- Application entry point and main execution loop
+- Initializes dependency injection, error handling, and menu system
+- Manages application lifecycle and graceful shutdown
 
 ---
 
-Make sure each class only handles its own responsibilities. This makes the system modular, testable, and easier to debug or extend.
-"""
+## Development Guidelines
 
-# Write to file
-output_path = Path("/mnt/data/OptiSolve_ClassResponsibilities.txt")
-output_path.write_text(class_descriptions)
+### Class Responsibility Principles:
+- Single Responsibility: Each class handles one specific aspect of the optimization process
+- Separation of Concerns: UI, business logic, and data access are clearly separated
+- Interface Segregation: Specific interfaces for different solver types and capabilities
+- Dependency Inversion: High-level modules depend on abstractions, not concrete implementations
 
-output_path.name
+### Code Organization:
+- Modular Design: Related functionality grouped into logical namespaces
+- Extensibility: Easy to add new algorithms or analysis methods
+- Testability: Clear interfaces and separation enable comprehensive unit testing
+- Maintainability: Well-organized structure supports long-term maintenance and updates
+
+### Integration Points:
+- All solvers implement ISolver for consistent interface
+- SolverController orchestrates the entire solving pipeline
+- Analysis components work with solution objects from any solver
+- Error handling is centralized but algorithm-specific where needed
