@@ -30,6 +30,79 @@ OptiSolve.NET is a console-based optimization tool developed using the .NET fram
 - Visual Studio 2022 or later (or any C# IDE)
 - Windows 10/11 recommended
 
+
+## Project Structure
+```
+OptiSolver.NET/
+├── Analysis/                           # Sensitivity Analysis Components
+│   ├── DualityAnalyser.cs             # Dual model analysis and verification
+│   ├── RangeAnalyser.cs               # Variable and constraint range analysis
+│   ├── SensitivityAnalyser.cs         # Main sensitivity analysis coordinator
+│   └── ShadowPriceCalculator.cs       # Shadow price calculations
+├── Controller/
+│   └── SolverController.cs            # Main application orchestration
+├── Core/                              # Fundamental Data Models
+│   ├── Constraint.cs                  # Constraint representation
+│   ├── Enums.cs                       # Enumerations and constants
+│   ├── LPModel.cs                     # Linear programming model
+│   └── Variable.cs                    # Decision variable representation
+├── Exceptions/                        # Custom Exception Handling
+│   ├── AlgorithmException.cs          # General algorithm errors
+│   ├── InfeasibleSolutionException.cs # Infeasible solution detection
+│   ├── InvalidInputException.cs       # Input validation errors
+│   └── UnboundedSolutionException.cs  # Unbounded solution detection
+├── IO/                               # Input/Output Operations
+│   ├── InputParser.cs                # Parse input files
+│   └── OutputWriter.cs               # Generate output files
+├── Models/                           # Complex Data Structures
+│   ├── Analysis/
+│   │   ├── DualSolution.cs           # Dual problem solution
+│   │   ├── SensitivityRange.cs       # Sensitivity range data
+│   │   └── ShadowPrice.cs            # Shadow price information
+│   ├── Solution/
+│   │   ├── IterationResult.cs        # Individual iteration data
+│   │   ├── OptimalSolution.cs        # Final optimal solution
+│   │   └── SolutionStatus.cs         # Solution status information
+│   └── Tableau/
+│       ├── SimplexTableau.cs         # Simplex tableau representation
+│       ├── TableauColumn.cs          # Tableau column operations
+│       └── TableauRow.cs             # Tableau row operations
+├── Services/                         # Algorithm Implementations
+│   ├── Base/
+│   │   ├── ISolver.cs                # Base solver interface
+│   │   ├── SolutionResult.cs         # Generic solution result
+│   │   └── SolverBase.cs             # Common solver functionality
+│   ├── BranchAndBound/
+│   │   ├── BranchBoundKnapsack.cs    # Branch & Bound for Knapsack
+│   │   ├── BranchBoundSimplex.cs     # Branch & Bound with Simplex
+│   │   └── BranchNode.cs             # Branch tree node representation
+│   ├── CuttingPlane/
+│   │   ├── CuttingPlaneSolver.cs     # Cutting plane algorithm
+│   │   └── CuttingPlaneTableau.cs    # Cutting plane tableau
+│   ├── Knapsack/
+│   │   ├── KnapsackItem.cs           # Knapsack item representation
+│   │   └── KnapsackSolver.cs         # Knapsack-specific solver
+│   └── Simplex/
+│       ├── RevisedSimplexSolver.cs   # Revised simplex implementation
+│       ├── SimplexSolver.cs          # Standard simplex implementation
+│       └── SimplexTableau.cs         # Simplex tableau operations
+├── Tests/                            # Testing Infrastructure
+│   ├── TestData/
+│   │   └── ExpectedOutputs/
+│   │       ├── sample_ip.txt         # Sample integer programming input
+│   │       └── sample_lp.txt         # Sample linear programming input
+├── UI/                               # User Interface Components
+│   ├── DisplayHelper.cs              # Output formatting utilities
+│   └── Menu.cs                       # Menu system implementation
+├── Utilities/                        # Common Utility Functions
+│   ├── ErrorHandler.cs               # Centralized error handling
+│   ├── MathHelper.cs                 # Mathematical operations
+│   ├── MatrixOperations.cs           # Matrix manipulation utilities
+│   └── Validator.cs                  # Input validation utilities
+└── Program.cs                        # Application entry point
+```
+
+
 ## Input File Format
 ```bash
 max +2 +3 +3 +5 +2 +4
@@ -73,7 +146,28 @@ The program generates an output file that includes:
 3. Provide the input file when prompted.
 4. View and analyze the output file generated.
 
-## Sensitivity Analysis Options
+
+## Algorithm Implementations
+
+### Simplex Methods
+
+- Primal Simplex: Standard tableau-based implementation with full iteration display
+- Revised Simplex: Matrix-based approach with Product Form and Price Out iterations
+
+### Integer Programming
+
+- Branch & Bound Simplex: Complete tree traversal with backtracking and fathoming
+- Branch & Bound Knapsack: Specialized knapsack implementation with optimal branching
+- Cutting Plane: Gomory cuts with iterative constraint addition
+
+### Key Features
+
+- Backtracking: Implemented in all Branch & Bound algorithms
+- Fathoming: Automatic pruning of suboptimal branches
+- Canonical Form: Automatic conversion and display for all algorithms
+- Iteration Tracking: Complete step-by-step solution process
+
+### Sensitivity Analysis Options
 
 - Range of selected Basic/Non-Basic Variables
 - Apply coefficient or RHS changes
@@ -82,14 +176,22 @@ The program generates an output file that includes:
 - Solve and verify Dual Model
 - Strong/Weak Duality verification
 
-## Special Case Handling
+### Special Case Handling
 
 - Detects and reports:
-  - Infeasible models
-  - Unbounded solutions
-  - Invalid input formats
+    - Infeasible models
+    - Unbounded solutions
+    - Invalid input formats
+    - Algorithm-specific errors
 
-## Bonus Feature
+### Data Flow
+
+- Input: InputParser reads and validates model files
+- Processing: SolverController orchestrates algorithm execution
+- Analysis: Sensitivity analysis performed on optimal solutions
+- Output: OutputWriter generates formatted result files
+
+### Bonus Feature
 
 Supports solving basic non-linear functions like `f(x) = x²` using iterative optimization (e.g., gradient descent), if enabled.
 

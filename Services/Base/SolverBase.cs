@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace OptiSolver.NET.Services
+namespace OptiSolver.NET.Services.Base
 {
-    internal class RevisedSimplexSolver
+    internal class SolverBase
     {
     }
 }

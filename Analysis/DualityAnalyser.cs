@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace OptiSolver.NET.Services
+namespace OptiSolver.NET.Analysis
 {
-    internal class SensitivityAnalyser
+    internal class DualityAnalyser
     {
     }
 }
