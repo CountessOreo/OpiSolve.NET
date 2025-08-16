@@ -76,12 +76,13 @@ OptiSolver.NET/
 │   │   ├── BranchBoundKnapsack.cs    # Branch & Bound for Knapsack
 │   │   ├── BranchBoundSimplex.cs     # Branch & Bound with Simplex
 │   │   └── BranchNode.cs             # Branch tree node representation
+│   │   ├── KnapsackItem.cs           # Knapsack item representation
+│   │   ├── KnapsackNode.cs           # Knapsack node representation
+│   │   ├── KnapsackSolverWrapper.cs  # Knapsack solver algorithm
+│   │   └── BranchAndBoundKnapsack.cs # Knapsack-specific solver 
 │   ├── CuttingPlane/
 │   │   ├── CuttingPlaneSolver.cs     # Cutting plane algorithm
 │   │   └── CuttingPlaneTableau.cs    # Cutting plane tableau
-│   ├── Knapsack/
-│   │   ├── KnapsackItem.cs           # Knapsack item representation
-│   │   └── KnapsackSolver.cs         # Knapsack-specific solver
 │   └── Simplex/
 │       ├── RevisedSimplexSolver.cs   # Revised simplex implementation
 │       ├── SimplexSolver.cs          # Standard simplex implementation
