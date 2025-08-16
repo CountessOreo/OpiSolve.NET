@@ -42,7 +42,8 @@
         Infeasible, 
         Unbounded,  
         Alternative,
-        Error
+        Error,
+        MaxIterationsReached
     }
 
     /// <summary>
@@ -63,50 +64,7 @@
     public static class EnumHelper
     {
         /// <summary>
-        /// Converts string relation to enum (<=, =, >=)
-        /// </summary>
-        public static ConstraintRelation ParseRelation(string relation)
-        {
-            return relation.Trim() switch
-            {
-                "<=" => ConstraintRelation.LessThanOrEqual,
-                "=" => ConstraintRelation.Equal,
-                ">=" => ConstraintRelation.GreaterThanOrEqual,
-                _ => throw new ArgumentException($"Invalid constraint relation: {relation}")
-            };
-        }
-
-        /// <summary>
-        /// Converts string variable type to enum (+, -, urs, int, bin)
-        /// </summary>
-        public static VariableType ParseVariableType(string type)
-        {
-            return type.Trim().ToLower() switch
-            {
-                "+" => VariableType.Positive,
-                "-" => VariableType.Negative,
-                "urs" => VariableType.Unrestricted,
-                "int" => VariableType.Integer,
-                "bin" => VariableType.Binary,
-                _ => throw new ArgumentException($"Invalid variable type: {type}")
-            };
-        }
-
-        /// <summary>
-        /// Converts string objective type to enum (max, min)
-        /// </summary>
-        public static ObjectiveType ParseObjectiveType(string objective)
-        {
-            return objective.Trim().ToLower() switch
-            {
-                "max" => ObjectiveType.Maximize,
-                "min" => ObjectiveType.Minimize,
-                _ => throw new ArgumentException($"Invalid objective type: {objective}")
-            };
-        }
-
-        /// <summary>
-        /// Converts relation enum back to string representation
+        /// Converts constraint relation to string symbol
         /// </summary>
         public static string RelationToString(ConstraintRelation relation)
         {
@@ -115,24 +73,99 @@
                 ConstraintRelation.LessThanOrEqual => "<=",
                 ConstraintRelation.Equal => "=",
                 ConstraintRelation.GreaterThanOrEqual => ">=",
-                _ => throw new ArgumentException($"Unknown relation: {relation}")
+                _ => "?"
             };
         }
 
         /// <summary>
-        /// Converts variable type enum back to string representation
+        /// Converts string symbol to constraint relation
+        /// </summary>
+        public static ConstraintRelation StringToRelation(string relationString)
+        {
+            return relationString?.Trim() switch
+            {
+                "<=" => ConstraintRelation.LessThanOrEqual,
+                "=" => ConstraintRelation.Equal,
+                ">=" => ConstraintRelation.GreaterThanOrEqual,
+                _ => throw new ArgumentException($"Unknown constraint relation: {relationString}")
+            };
+        }
+
+        /// <summary>
+        /// Converts objective type to display string
+        /// </summary>
+        public static string ObjectiveTypeToString(ObjectiveType type)
+        {
+            return type switch
+            {
+                ObjectiveType.Maximize => "Maximize",
+                ObjectiveType.Minimize => "Minimize",
+                _ => "Unknown"
+            };
+        }
+
+        /// <summary>
+        /// Converts string to objective type
+        /// </summary>
+        public static ObjectiveType StringToObjectiveType(string objectiveString)
+        {
+            return objectiveString?.ToLower().Trim() switch
+            {
+                "max" or "maximize" => ObjectiveType.Maximize,
+                "min" or "minimize" => ObjectiveType.Minimize,
+                _ => throw new ArgumentException($"Unknown objective type: {objectiveString}")
+            };
+        }
+
+        /// <summary>
+        /// Converts variable type to display string
         /// </summary>
         public static string VariableTypeToString(VariableType type)
         {
             return type switch
             {
-                VariableType.Positive => "+",
-                VariableType.Negative => "-",
-                VariableType.Unrestricted => "urs",
-                VariableType.Integer => "int",
-                VariableType.Binary => "bin",
-                VariableType.Continuous => "+", 
-                _ => throw new ArgumentException($"Unknown variable type: {type}")
+                VariableType.Positive => "Positive",
+                VariableType.Negative => "Negative",
+                VariableType.Unrestricted => "Unrestricted",
+                VariableType.Binary => "Binary",
+                VariableType.Integer => "Integer",
+                VariableType.Continuous => "Continuous",
+                _ => "Unknown"
+            };
+        }
+
+        /// <summary>
+        /// Converts string to variable type
+        /// </summary>
+        public static VariableType StringToVariableType(string variableString)
+        {
+            return variableString?.ToLower().Trim() switch
+            {
+                "+" or "pos" or "positive" => VariableType.Positive,
+                "-" or "neg" or "negative" => VariableType.Negative,
+                "urs" or "unrestricted" => VariableType.Unrestricted,
+                "bin" or "binary" => VariableType.Binary,
+                "int" or "integer" => VariableType.Integer,
+                "cont" or "continuous" => VariableType.Continuous,
+                _ => throw new ArgumentException($"Unknown variable type: {variableString}")
+            };
+        }
+
+        /// <summary>
+        /// Converts solution status to display string
+        /// </summary>
+        public static string SolutionStatusToString(SolutionStatus status)
+        {
+            return status switch
+            {
+                SolutionStatus.NotSolved => "Not Solved",
+                SolutionStatus.Optimal => "Optimal",
+                SolutionStatus.Infeasible => "Infeasible",
+                SolutionStatus.Unbounded => "Unbounded",
+                SolutionStatus.Error => "Error",
+                SolutionStatus.MaxIterationsReached => "Max Iterations Reached",
+                SolutionStatus.Alternative => "Alternative Solution",
+                _ => "Unknown"
             };
         }
     }

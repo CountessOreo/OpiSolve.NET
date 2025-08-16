@@ -65,10 +65,7 @@ namespace OptiSolver.NET.Services.Base
             if (model.Constraints == null)
                 return false;
 
-            // Check for objective function
-            if (model.ObjectiveValue == null)
-                return false;
-
+            // Additional validation could be added here by derived classes
             return true;
         }
 
@@ -143,9 +140,6 @@ namespace OptiSolver.NET.Services.Base
 
             if (model.Variables == null || model.Variables.Count == 0)
                 return SolutionResult.CreateError(AlgorithmName, "Model must have at least one variable");
-
-            if (model.ObjectiveValue == null)
-                return SolutionResult.CreateError(AlgorithmName, "Model must have an objective function");
 
             if (model.Constraints == null)
                 return SolutionResult.CreateError(AlgorithmName, "Model constraints cannot be null");
