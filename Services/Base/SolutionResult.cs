@@ -43,11 +43,14 @@ namespace OptiSolver.NET.Services.Base
         // Reduced costs per variable (if applicable)
         public double[] ReducedCosts { get; set; }
 
+        public bool HasAlternateOptima { get; set; }
+
         // Convenience checks
         public bool IsOptimal => Status == SolutionStatus.Optimal;
         public bool IsInfeasible => Status == SolutionStatus.Infeasible;
         public bool IsUnbounded => Status == SolutionStatus.Unbounded;
         public bool IsFeasible => Status == SolutionStatus.Optimal;
+        public bool HasAlternative => Status == SolutionStatus.AlternativeOptimal;
 
         public override string ToString()
         {
@@ -60,12 +63,15 @@ namespace OptiSolver.NET.Services.Base
                 sb += $"Objective: {ObjectiveValue:F6}\n";
                 if (VariableValues != null)
                     sb += $"x*: [{string.Join(", ", VariableValues.Select(v => v.ToString("F6")))}]\n";
+                if (HasAlternateOptima)
+                    sb += "Note: Alternate optimal solutions exist.\n";
             }
 
             sb += $"Iterations: {Iterations}\n";
             sb += $"Solve Time: {SolveTimeMs:F2} ms";
             return sb;
         }
+
 
         /// <summary>
         /// 
@@ -83,19 +89,22 @@ namespace OptiSolver.NET.Services.Base
             int iterations,
             string algorithm,
             double solveTimeMs = 0,
-            string message = "Optimal solution found")
+            string message = "Optimal solution found",
+            bool hasAlternateOptima = false)
         {
             return new SolutionResult
             {
-                Status = SolutionStatus.Optimal,
+                Status = hasAlternateOptima ? SolutionStatus.AlternativeOptimal : SolutionStatus.Optimal,
                 ObjectiveValue = objectiveValue,
                 VariableValues = variableValues,
                 Iterations = iterations,
                 SolveTimeMs = solveTimeMs,
                 AlgorithmUsed = algorithm,
-                Message = message
+                Message = message,
+                HasAlternateOptima = hasAlternateOptima
             };
         }
+
 
         /// <summary>
         /// 

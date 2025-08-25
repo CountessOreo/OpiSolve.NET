@@ -197,27 +197,37 @@ namespace OptiSolver.NET.Core
                 for (int j = 0; j < structuralCols; j++)
                     canonical.ConstraintMatrix[i, j] = expanded[j];
 
-                // Auxiliary columns
-                // find indices by (constraintIndex, type)
-                // Slack (+1), Surplus (-1), Artificial (+1)
-                var slackIdx = mapping.AuxiliaryVariables
-                    .FirstOrDefault(kv => kv.Value.Type == AuxiliaryVariableType.Slack && kv.Value.ConstraintIndex == i).Key;
-                if (mapping.AuxiliaryVariables.ContainsKey(slackIdx))
-                    canonical.ConstraintMatrix[i, slackIdx] = +1.0;
+                int idx;
 
-                var surplusIdx = mapping.AuxiliaryVariables
-                    .FirstOrDefault(kv => kv.Value.Type == AuxiliaryVariableType.Surplus && kv.Value.ConstraintIndex == i).Key;
-                if (mapping.AuxiliaryVariables.ContainsKey(surplusIdx))
-                    canonical.ConstraintMatrix[i, surplusIdx] = -1.0;
+                // Slack (+1)
+                idx = GetAuxIndex(mapping, AuxiliaryVariableType.Slack, i);
+                if (idx >= 0)
+                    canonical.ConstraintMatrix[i, idx] = +1.0;
 
-                var artificialIdx = mapping.AuxiliaryVariables
-                    .FirstOrDefault(kv => kv.Value.Type == AuxiliaryVariableType.Artificial && kv.Value.ConstraintIndex == i).Key;
-                if (mapping.AuxiliaryVariables.ContainsKey(artificialIdx))
-                    canonical.ConstraintMatrix[i, artificialIdx] = +1.0;
+                // Surplus (-1)
+                idx = GetAuxIndex(mapping, AuxiliaryVariableType.Surplus, i);
+                if (idx >= 0)
+                    canonical.ConstraintMatrix[i, idx] = -1.0;
+
+                // Artificial (+1)
+                idx = GetAuxIndex(mapping, AuxiliaryVariableType.Artificial, i);
+                if (idx >= 0)
+                    canonical.ConstraintMatrix[i, idx] = +1.0;
 
                 canonical.RightHandSide[i] = r.RHS;
             }
         }
+
+        private static int GetAuxIndex(VariableMapping mapping, AuxiliaryVariableType type, int constraintRow)
+        {
+            foreach (var kv in mapping.AuxiliaryVariables)
+            {
+                if (kv.Value.Type == type && kv.Value.ConstraintIndex == constraintRow)
+                    return kv.Key;
+            }
+            return -1;
+        }
+
 
         private void BuildObjectiveFunction(CanonicalForm canonical, LPModel model, VariableMapping mapping)
         {
@@ -252,10 +262,10 @@ namespace OptiSolver.NET.Core
             {
                 if (!mapping.CanonicalToOriginal.TryGetValue(j, out var info))
                 {
-                    // Defensive defaults
+                    // Defensive defaults for structural variable with no mapping (should be rare)
+                    canonical.VariableTypes[j] = VariableType.Positive;   
                     canonical.LowerBounds[j] = 0.0;
                     canonical.UpperBounds[j] = double.PositiveInfinity;
-                    continue;
                 }
 
                 var origIdx = info.OriginalIndex;
@@ -281,6 +291,7 @@ namespace OptiSolver.NET.Core
             {
                 canonical.LowerBounds[j] = 0.0;
                 canonical.UpperBounds[j] = double.PositiveInfinity;
+                canonical.VariableTypes[j] = VariableType.Positive;  
             }
         }
 
