@@ -142,6 +142,13 @@ namespace OptiSolver.NET.Services.Base
             };
         }
 
+        public static SolutionResult CreateInfeasible(string message = "Model is infeasible")
+            => CreateInfeasible("N/A", message);
+
+        public static SolutionResult CreateUnbounded(string message = "Objective is unbounded")
+            => CreateUnbounded("N/A", message);
+
+
         /// <summary>
         /// 
         /// </summary>

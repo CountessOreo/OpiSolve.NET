@@ -5,6 +5,7 @@ using OptiSolver.NET.IO;
 using OptiSolver.NET.Services.Base;
 using OptiSolver.NET.Services.Simplex;
 using OptiSolver.NET.Services.BranchAndBound;
+using OptiSolver.NET.Exceptions;
 
 namespace OptiSolver.NET.Controller
 {
@@ -37,6 +38,22 @@ namespace OptiSolver.NET.Controller
                     return SolutionResult.CreateError("Controller", $"Unknown or unsupported solver key: '{solverKey}'");
 
                 return solver.Solve(LastModel, options);
+            }
+            catch (InvalidInputException ex)
+            {
+                return SolutionResult.CreateError("Input", ex.Message);
+            }
+            catch (InfeasibleSolutionException ex)
+            {
+                return SolutionResult.CreateInfeasible("N/A", ex.Message);
+            }
+            catch (UnboundedSolutionException ex)
+            {
+                return SolutionResult.CreateUnbounded("N/A", ex.Message);
+            }
+            catch (AlgorithmException ex)
+            {
+                return SolutionResult.CreateError("Algorithm", ex.Message);
             }
             catch (Exception ex)
             {
