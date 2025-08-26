@@ -8,14 +8,14 @@ namespace OptiSolver.NET.Services.Simplex
     /// Standard Primal Simplex Algorithm for LPModel.
     /// Uses canonical form and tableau operations.
     /// </summary>
-    public class SimplexSolver
+    public class SimplexTableau
     {
         private readonly LPModel model;
         private readonly CanonicalForm canonical;
         private double[,] tableau;
         private int iteration;
 
-        public SimplexSolver(LPModel model)
+        public SimplexTableau(LPModel model)
         {
             this.model = model ?? throw new ArgumentNullException(nameof(model));
             this.canonical = new ModelCanonicalTransformer().Canonicalize(model);
