@@ -61,6 +61,45 @@ namespace OptiSolver.NET.Controller
             }
         }
 
+        // In SolverController.cs (add inside the SolverController class)
+        public SolutionResult SolveModel(LPModel model, string solverKey = "revised", Dictionary<string, object> options = null)
+        {
+            try
+            {
+                if (model == null)
+                    return SolutionResult.CreateError("Controller", "Model cannot be null");
+
+                LastModel = model;
+
+                var solver = CreateSolver(solverKey, model);
+                if (solver == null)
+                    return SolutionResult.CreateError("Controller", $"Unknown or unsupported solver key: '{solverKey}'");
+
+                return solver.Solve(model, options);
+            }
+            catch (InvalidInputException ex)
+            {
+                return SolutionResult.CreateError("Input", ex.Message);
+            }
+            catch (InfeasibleSolutionException ex)
+            {
+                return SolutionResult.CreateInfeasible("N/A", ex.Message);
+            }
+            catch (UnboundedSolutionException ex)
+            {
+                return SolutionResult.CreateUnbounded("N/A", ex.Message);
+            }
+            catch (AlgorithmException ex)
+            {
+                return SolutionResult.CreateError("Algorithm", ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return SolutionResult.CreateError("Controller", ex.Message);
+            }
+        }
+
+
         /// <summary>
         /// Choose an ISolver implementation for the model and key.
         /// </summary>
