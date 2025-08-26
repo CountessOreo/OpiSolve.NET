@@ -61,6 +61,12 @@ namespace OptiSolver.NET.Core
         // Whether this is an integer program
         public bool IsIntegerProgram => VariableTypes?.Any(vt => EnumHelper.IsIntegerType(vt)) ?? false;
 
+        public int OriginalVariableCount
+        {
+            get => OriginalVariables;
+            set => OriginalVariables = value;
+        }
+
         public CanonicalForm()
         {
             ArtificialVariableIndices = new List<int>();
@@ -335,5 +341,32 @@ namespace OptiSolver.NET.Core
 
             return sb.ToString();
         }
+
+        public bool IsArtificialVariable(int canonicalIndex)
+        {
+            if (ArtificialVariableIndices != null && ArtificialVariableIndices.Contains(canonicalIndex))
+                return true;
+
+            if (VariableMapping?.AuxiliaryVariables != null
+                && VariableMapping.AuxiliaryVariables.TryGetValue(canonicalIndex, out var aux))
+                return aux.Type == AuxiliaryVariableType.Artificial;
+
+            return false;
+        }
+
+        public bool IsSlackVariable(int canonicalIndex)
+        {
+            return VariableMapping?.AuxiliaryVariables != null
+                && VariableMapping.AuxiliaryVariables.TryGetValue(canonicalIndex, out var aux)
+                && aux.Type == AuxiliaryVariableType.Slack;
+        }
+
+        public bool IsSurplusVariable(int canonicalIndex)
+        {
+            return VariableMapping?.AuxiliaryVariables != null
+                && VariableMapping.AuxiliaryVariables.TryGetValue(canonicalIndex, out var aux)
+                && aux.Type == AuxiliaryVariableType.Surplus;
+        }
+
     }
 }
