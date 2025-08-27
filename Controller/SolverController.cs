@@ -21,9 +21,11 @@ namespace OptiSolver.NET.Controller
         /// </summary>
         /// <param name="filePath">Path to input text file (see InputParser format)</param>
         /// <param name="solverKey">
-        /// "tableau" => Primal Simplex (Tableau), 
+        /// "tableau" => Primal Simplex (Tableau),
         /// "revised" => Revised Simplex (Two-Phase),
-        /// "knapsack" => Branch & Bound 0-1 Knapsack (only for ≤ single-constraint binary)
+        /// "knapsack" => Branch & Bound 0-1 Knapsack (only for ≤ single-constraint binary),
+        /// "bb-ilp"  => Branch & Bound (MILP) with Revised relaxations (default),
+        /// "bb-ilp-tableau" => Branch & Bound (MILP) with Primal Simplex (Tableau) relaxations.
         /// </param>
         /// <param name="options">Optional solver options</param>
         public SolutionResult SolveFromFile(string filePath, string solverKey = "revised", Dictionary<string, object> options = null)
@@ -32,6 +34,9 @@ namespace OptiSolver.NET.Controller
             {
                 var parser = new InputParser();
                 LastModel = parser.ParseFile(filePath);
+
+                // Normalize options for B&B tableau relaxations if requested by key
+                options = EnsureBBRelaxationEngineIfRequested(solverKey, options);
 
                 var solver = CreateSolver(solverKey, LastModel);
                 if (solver == null)
@@ -61,7 +66,7 @@ namespace OptiSolver.NET.Controller
             }
         }
 
-        // In SolverController.cs (add inside the SolverController class)
+        // Solve an already-parsed model
         public SolutionResult SolveModel(LPModel model, string solverKey = "revised", Dictionary<string, object> options = null)
         {
             try
@@ -70,6 +75,9 @@ namespace OptiSolver.NET.Controller
                     return SolutionResult.CreateError("Controller", "Model cannot be null");
 
                 LastModel = model;
+
+                // Normalize options for B&B tableau relaxations if requested by key
+                options = EnsureBBRelaxationEngineIfRequested(solverKey, options);
 
                 var solver = CreateSolver(solverKey, model);
                 if (solver == null)
@@ -99,7 +107,6 @@ namespace OptiSolver.NET.Controller
             }
         }
 
-
         /// <summary>
         /// Choose an ISolver implementation for the model and key.
         /// </summary>
@@ -127,25 +134,48 @@ namespace OptiSolver.NET.Controller
                     return bb.CanSolve(model) ? bb : null;
                 }
 
-                // >>> NEW: general/mixed integer B&B using Revised Simplex relaxations
+                // General/mixed integer B&B using LP relaxations (Revised by default)
                 case "bb":
                 case "ilp":
                 case "bb-ilp":
                 case "branchbound":
                 case "branch-and-bound":
+                case "bb-tableau":                 // map to ILP B&B; controller sets option later
+                case "bb-ilp-tableau":            // map to ILP B&B; controller sets option later
+                case "branch-and-bound-tableau":  // map to ILP B&B; controller sets option later
                 {
                     var bb = new BranchBoundILPSolver();
-                    return bb.CanSolve(model) ? bb : null;   // return null if model has no integer vars
+                    return bb.CanSolve(model) ? bb : null;   // null if model has no integer vars
                 }
             }
 
-            // Fallback: auto-detect
+            // Fallback: auto-detect knapsack
             var bbTry = new BranchBoundKnapsackSolver();
             if (bbTry.CanSolve(model))
                 return bbTry;
 
-            // Default general LP solver
+            // Default to Revised Simplex for general LP
             return new RevisedSimplexSolver();
+        }
+
+        /// <summary>
+        /// If the selected solver key implies B&B(ILP) with tableau relaxations,
+        /// ensure options["BBRelaxationEngine"]="tableau". Otherwise leave options as-is.
+        /// </summary>
+        private static Dictionary<string, object> EnsureBBRelaxationEngineIfRequested(string solverKey, Dictionary<string, object> options)
+        {
+            var key = (solverKey ?? "").Trim().ToLowerInvariant();
+            bool wantsBBTableau =
+                key == "bb-tableau" ||
+                key == "bb-ilp-tableau" ||
+                key == "branch-and-bound-tableau";
+
+            if (!wantsBBTableau)
+                return options;
+
+            options ??= new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            options["BBRelaxationEngine"] = "tableau";
+            return options;
         }
     }
 }
