@@ -6,7 +6,6 @@ using OptiSolver.NET.Services.Base;
 using OptiSolver.NET.Core;
 using OptiSolver.NET.UI;
 
-
 namespace OptiSolver.NET.IO
 {
     internal static class OutputWriter
@@ -19,6 +18,13 @@ namespace OptiSolver.NET.IO
             Console.WriteLine($"Status    : {r.Status}");
             if (!string.IsNullOrWhiteSpace(r.Message))
                 Console.WriteLine($"Message   : {r.Message}");
+
+            // Style hint (tableau vs revised vs B&B)
+            string style = r.AlgorithmUsed?.Contains("Primal Simplex") == true ? "Tableau"
+                         : r.AlgorithmUsed?.Contains("Revised Simplex") == true ? "Revised (product form & price-out)"
+                         : r.AlgorithmUsed?.StartsWith("Branch & Bound") == true ? "Branch & Bound over Revised Simplex relaxations"
+                         : "N/A";
+            Console.WriteLine($"Style     : {style}");
 
             if (r.IsOptimal || r.Status == SolutionStatus.AlternativeOptimal)
             {
@@ -91,6 +97,14 @@ namespace OptiSolver.NET.IO
             sb.AppendLine($"Status    : {r.Status}");
             if (!string.IsNullOrWhiteSpace(r.Message))
                 sb.AppendLine($"Message   : {r.Message}");
+
+            // Style hint (tableau vs revised vs B&B)
+            string style = r.AlgorithmUsed?.Contains("Primal Simplex") == true ? "Tableau"
+                         : r.AlgorithmUsed?.Contains("Revised Simplex") == true ? "Revised (product form & price-out)"
+                         : r.AlgorithmUsed?.StartsWith("Branch & Bound") == true ? "Branch & Bound over Revised Simplex relaxations"
+                         : "N/A";
+            sb.AppendLine($"Style     : {style}");
+
             sb.AppendLine($"Objective : {(double.IsNaN(r.ObjectiveValue) ? "NaN" : UI.DisplayHelper.Round3(r.ObjectiveValue))}");
             sb.AppendLine($"Iterations: {r.Iterations}");
             sb.AppendLine($"SolveTime : {r.SolveTimeMs:0.000} ms");
@@ -116,7 +130,7 @@ namespace OptiSolver.NET.IO
             if (!string.IsNullOrEmpty(log))
             {
                 sb.AppendLine("=== CANONICAL FORM & ITERATIONS ===");
-                sb.AppendLine(log); // your simplex log already prints tableau rows @ 3 d.p.
+                sb.AppendLine(log); // your simplex/B&B logs already print at 3 d.p.
             }
             else
             {

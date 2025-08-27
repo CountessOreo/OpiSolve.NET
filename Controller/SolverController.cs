@@ -107,7 +107,6 @@ namespace OptiSolver.NET.Controller
         {
             key = (key ?? "").Trim().ToLowerInvariant();
 
-            // Prefer explicit choice
             switch (key)
             {
                 case "tableau":
@@ -126,6 +125,17 @@ namespace OptiSolver.NET.Controller
                 {
                     var bb = new BranchBoundKnapsackSolver();
                     return bb.CanSolve(model) ? bb : null;
+                }
+
+                // >>> NEW: general/mixed integer B&B using Revised Simplex relaxations
+                case "bb":
+                case "ilp":
+                case "bb-ilp":
+                case "branchbound":
+                case "branch-and-bound":
+                {
+                    var bb = new BranchBoundILPSolver();
+                    return bb.CanSolve(model) ? bb : null;   // return null if model has no integer vars
                 }
             }
 

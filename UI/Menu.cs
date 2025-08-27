@@ -30,7 +30,7 @@ namespace OptiSolver.NET.UI
                     Console.WriteLine("No path given. Exiting.");
                     return;
                 }
-                if (!System.IO.File.Exists(path))
+                if (!File.Exists(path))
                 {
                     Console.WriteLine($"File not found: {path}\n");
                     continue; // ask again
@@ -45,7 +45,7 @@ namespace OptiSolver.NET.UI
                     Console.WriteLine("  1) Primal Simplex (Tableau)");
                     Console.WriteLine("  2) Revised Simplex (Two-Phase)   [default]");
                     Console.WriteLine("  3) Branch & Bound 0-1 Knapsack   (single ≤ constraint + binary)");
-                    Console.WriteLine("  4) Branch & Bound (Simplex)      [not available yet]");
+                    Console.WriteLine("  4) Branch & Bound (Simplex, Mixed/Pure Integer)");
                     Console.WriteLine("  5) Cutting Plane (Gomory)        [not available yet]");
                     Console.Write("Selection [1-5 or ?]: ");
                     var choice = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
@@ -58,7 +58,8 @@ namespace OptiSolver.NET.UI
                         continue; // re-prompt selection
                     }
 
-                    if (choice == "4" || choice == "5")
+                    // Only option 5 is blocked
+                    if (choice == "5")
                     {
                         Console.WriteLine("Selected solver is not available yet. Please choose another.\n");
                         continue; // re-prompt selection (no fallback)
@@ -68,6 +69,7 @@ namespace OptiSolver.NET.UI
                     {
                         "1" => "tableau",
                         "3" => "knapsack",
+                        "4" => "bb-ilp",
                         _ => "revised",
                     };
                     break;
@@ -88,6 +90,18 @@ namespace OptiSolver.NET.UI
                 var verb = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
                 if (verb == "y" || verb == "yes")
                     options["Verbose"] = true;
+
+                // Optional: B&B-specific knobs
+                if (solverKey == "bb-ilp")
+                {
+                    Console.Write("B&B MaxNodes (blank=100000): ");
+                    if (int.TryParse(Console.ReadLine(), out int maxNodes))
+                        options["MaxNodes"] = maxNodes;
+
+                    Console.Write("B&B TimeLimit seconds (blank=60): ");
+                    if (double.TryParse(Console.ReadLine(), out double tl))
+                        options["TimeLimit"] = tl;
+                }
 
                 Console.WriteLine();
                 Console.WriteLine($"[RUN] {solverKey} on \"{path}\"");
@@ -127,8 +141,8 @@ namespace OptiSolver.NET.UI
 
                 OptiSolver.NET.IO.OutputWriter.WriteToConsole(result);
 
-                string defaultResults = System.IO.Path.ChangeExtension(path, ".results.txt");
-                string defaultLog = System.IO.Path.ChangeExtension(path, ".log.txt");
+                string defaultResults = Path.ChangeExtension(path, ".results.txt");
+                string defaultLog = Path.ChangeExtension(path, ".log.txt");
 
                 OptiSolver.NET.IO.OutputWriter.WriteFullResultToFile(result, defaultResults);
                 Console.WriteLine($"Full results auto-saved: {defaultResults}");
@@ -155,7 +169,7 @@ namespace OptiSolver.NET.UI
                     Console.WriteLine($"Log written: {logPath}");
                 }
 
-                // Sensitivity submenu when optimal
+                // Sensitivity submenu when optimal (primarily for LP solves)
                 if (result.IsOptimal || result.Status == SolutionStatus.AlternativeOptimal)
                 {
                     Console.WriteLine();
@@ -211,7 +225,7 @@ namespace OptiSolver.NET.UI
                         {
                             var report = SensitivityAnalyser.BuildReport(model, result);
                             Console.WriteLine(report);
-                            MaybeSave(report, System.IO.Path.ChangeExtension(inputPath, ".sensitivity.txt"));
+                            MaybeSave(report, Path.ChangeExtension(inputPath, ".sensitivity.txt"));
                             break;
                         }
                         case "2":
@@ -220,7 +234,7 @@ namespace OptiSolver.NET.UI
                                     ?? ShadowPriceCalculator.TryFromTableau(result);
                             if (y == null)
                             {
-                                Console.WriteLine("Shadow prices not available (need Revised Simplex artifacts).");
+                                Console.WriteLine("Shadow prices not available. Tip: run the model with the Revised Simplex solver so B^{-1}/dual artifacts are produced, then retry.");
                             }
                             else
                             {
@@ -237,7 +251,7 @@ namespace OptiSolver.NET.UI
                             Console.WriteLine("-- Cost Ranges (Non-Basic) --");
                             foreach (var r in ranges)
                                 Console.WriteLine($"x{r.VarIndex + 1}: c in [{Fmt(r.Min)}, {Fmt(r.Max)}], Δ+={Fmt(r.MaxIncrease)}, Δ-={Fmt(r.MaxDecrease)}  (rc={Fmt(r.ReducedCost)})");
-                            MaybeSave(Lines(ranges.Select(r => $"x{r.VarIndex + 1}: [{Fmt(r.Min)}, {Fmt(r.Max)}], rc={Fmt(r.ReducedCost)}")), System.IO.Path.ChangeExtension(inputPath, ".ranges.nonbasic.txt"));
+                            MaybeSave(Lines(ranges.Select(r => $"x{r.VarIndex + 1}: [{Fmt(r.Min)}, {Fmt(r.Max)}], rc={Fmt(r.ReducedCost)}")), Path.ChangeExtension(inputPath, ".ranges.nonbasic.txt"));
                             break;
                         }
                         case "4":
@@ -248,7 +262,7 @@ namespace OptiSolver.NET.UI
                             Console.WriteLine("-- Cost Ranges (Basic) --");
                             foreach (var r in ranges)
                                 Console.WriteLine($"x{r.VarIndex + 1}: c in [{Fmt(r.Min)}, {Fmt(r.Max)}], Δ+={Fmt(r.MaxIncrease)}, Δ-={Fmt(r.MaxDecrease)}");
-                            MaybeSave(Lines(ranges.Select(r => $"x{r.VarIndex + 1}: [{Fmt(r.Min)}, {Fmt(r.Max)}]")), System.IO.Path.ChangeExtension(inputPath, ".ranges.basic.txt"));
+                            MaybeSave(Lines(ranges.Select(r => $"x{r.VarIndex + 1}: [{Fmt(r.Min)}, {Fmt(r.Max)}]")), Path.ChangeExtension(inputPath, ".ranges.basic.txt"));
                             break;
                         }
                         case "5":
@@ -259,7 +273,7 @@ namespace OptiSolver.NET.UI
                             Console.WriteLine("-- RHS Ranges --");
                             for (int i = 0; i < ranges.Count; i++)
                                 Console.WriteLine($"b{i + 1}: b in [{Fmt(ranges[i].Min)}, {Fmt(ranges[i].Max)}], Δ+={Fmt(ranges[i].MaxIncrease)}, Δ-={Fmt(ranges[i].MaxDecrease)}");
-                            MaybeSave(Lines(ranges.Select((r, i) => $"b{i + 1}: [{Fmt(r.Min)}, {Fmt(r.Max)}]")), System.IO.Path.ChangeExtension(inputPath, ".ranges.rhs.txt"));
+                            MaybeSave(Lines(ranges.Select((r, i) => $"b{i + 1}: [{Fmt(r.Min)}, {Fmt(r.Max)}]")), Path.ChangeExtension(inputPath, ".ranges.rhs.txt"));
                             break;
                         }
                         case "6":
@@ -330,7 +344,7 @@ namespace OptiSolver.NET.UI
                         {
                             var summary = DualityAnalyser.CheckAndSummarize(model, result);
                             Console.WriteLine(summary);
-                            MaybeSave(summary, System.IO.Path.ChangeExtension(inputPath, ".duality.txt"));
+                            MaybeSave(summary, Path.ChangeExtension(inputPath, ".duality.txt"));
                             break;
                         }
                         default:
