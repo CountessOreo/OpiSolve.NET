@@ -1,0 +1,76 @@
+=== OPTISOLVER.NET RESULT ===
+Algorithm : Branch & Bound (MILP-Integer)
+Status    : Optimal
+Message   : Optimal (incumbent) via Branch & Bound
+Style     : Branch & Bound over Revised Simplex relaxations
+Objective : -13,000
+Iterations: 1
+SolveTime : 37,946 ms
+
+x*        : [ 2,000, 0,000, 1,000 ]
+
+=== CANONICAL FORM & ITERATIONS ===
+=== BRANCH & BOUND (MILP) over LP RELAXATIONS ===
+Objective sense        : Maximize
+Relaxation engine used : Primal Simplex (Tableau)
+
+
+--- Subproblem Node #1 (depth=0) ---
+Bounds: (none)
+LP status: Optimal; Obj=-13
+
+=== CANONICAL FORM ===
+======================
+Variables: 5 (3 original)
+Constraints: 2
+Objective: Maximize
+Requires Phase I: False
+
+
+Initial tableau (Phase II only, raw objective)
+==============================================
+      x1 |       x2 |       x3 |       s1 |       s2 |      RHS
+------------------------------------------------------------
+z    |   -5,000 |   -4,000 |   -3,000 |   -0,000 |   -0,000 |    0,000
+   ? |    2,000 |    3,000 |    1,000 |    1,000 |    0,000 |    5,000
+   ? |    1,000 |    1,000 |    1,000 |    0,000 |    1,000 |    3,000
+
+Initial basis detected: [x4, x5]
+Objective row canonicalised against initial basis.
+      x1 |       x2 |       x3 |       s1 |       s2 |      RHS
+------------------------------------------------------------
+z    |   -5,000 |   -4,000 |   -3,000 |   -0,000 |   -0,000 |    0,000
+  s1 |    2,000 |    3,000 |    1,000 |    1,000 |    0,000 |    5,000
+  s2 |    1,000 |    1,000 |    1,000 |    0,000 |    1,000 |    3,000
+
+
+=== PHASE II: OPTIMIZATION ===
+==============================
+[Phase II - Iter 1] Entering: x1, Leaving: s1, Pivot = 2,000
+      x1 |       x2 |       x3 |       s1 |       s2 |      RHS
+------------------------------------------------------------
+z    |    0,000 |    3,500 |   -0,500 |    2,500 |    0,000 |   12,500
+  s1 |    1,000 |    1,500 |    0,500 |    0,500 |    0,000 |    2,500
+  s2 |    0,000 |   -0,500 |    0,500 |   -0,500 |    1,000 |    0,500
+
+[Phase II - Iter 2] Entering: x3, Leaving: s2, Pivot = 0,500
+      x1 |       x2 |       x3 |       s1 |       s2 |      RHS
+------------------------------------------------------------
+z    |    0,000 |    3,000 |    0,000 |    2,000 |    1,000 |   13,000
+  x1 |    1,000 |    2,000 |    0,000 |    1,000 |   -1,000 |    2,000
+  s2 |    0,000 |   -1,000 |    1,000 |   -1,000 |    2,000 |    1,000
+
+[Phase II - Iter 3] Optimality reached.
+
+FINAL SOLUTION:
+Objective Value: -13,000
+Iterations: 3
+Variables: [2,000, 0,000, 1,000]
+
+--- End Node #1 ---
+[INCUMBENT] value=-13 at node #1 with 0 bound(s)
+
+=== BEST CANDIDATE SUMMARY ===
+Incumbent objective = -13
+x* = [ 2, 0, 1 ]
+
