@@ -10,6 +10,7 @@ namespace OptiSolver.NET.Services.Simplex
     /// <summary>
     /// Primal Simplex (tableau) with Two-Phase method, iteration logging and SolutionResult output.
     /// Implements both Phase I (artificial variables) and Phase II optimization.
+    /// Now also exports sensitivity artifacts: BasisIndices, BasisCanonicalIndices, CBasis, BInv, DualValues.
     /// </summary>
     public sealed class PrimalSimplexTableauSolver : SolverBase
     {
@@ -78,10 +79,43 @@ namespace OptiSolver.NET.Services.Simplex
                 // Phase II - Main optimization
                 var phaseIIResult = SolvePhaseII();
 
-                // Add final information to result
+                // ===== Export artifacts for sensitivity (tableau parity with revised) =====
+                // Final tableau snapshot
                 phaseIIResult.Info["FinalTableau"] = SnapshotTableau();
+
+                // Basis indices in current tableau coordinates (already set in SolvePhaseII())
                 phaseIIResult.Info["BasisIndices"] = _basis.ToArray();
+
+                // Also export canonical indices of the basis (for downstream tools)
+                var basisCanon = MapBasisToCanonical(_basis);
+                phaseIIResult.Info["BasisCanonicalIndices"] = basisCanon;
+
+                // Export c_B (canonical objective coeffs of the basis)
+                var cB = basisCanon.Select(i => SafeC(_canonical.ObjectiveCoefficients, i)).ToArray();
+                phaseIIResult.Info["CBasis"] = cB;
+
+                // Compute and export B^{-1} from canonical A using basis canonical indices
+                var B = BuildBasisMatrixFromCanonical(basisCanon);
+                var BInv = TryInvert(B);
+                if (BInv != null)
+                {
+                    phaseIIResult.Info["BInv"] = BInv;
+
+                    // Duals y^T = c_B^T B^{-1}
+                    var y = MultiplyRowVectorMatrix(cB, BInv);
+                    phaseIIResult.DualValues = y;
+                }
+                else
+                {
+                    // If inversion failed (singularity/numerics), leave duals null and log a gentle note
+                    LogLine("[Note] Basis inverse could not be computed (singular/ill-conditioned). Duals not exported.");
+                }
+
+                // Expose composed log under both keys for OutputWriter
+                phaseIIResult.Info["IterationLog"] = _log.ToString();
                 phaseIIResult.Info["Log"] = _log.ToString();
+
+                // Extra hints (not required by downstream, but nice to have)
                 phaseIIResult.Info["CanonicalVariableCount"] = _n;
                 phaseIIResult.Info["OriginalVariableCount"] = _canonical.OriginalVariableCount;
 
@@ -206,7 +240,7 @@ namespace OptiSolver.NET.Services.Simplex
             // Create new tableau without artificial variable columns
             int newN = _n - _artificialIndices.Count;
             double[,] newTab = new double[_m + 1, newN + 1];
-            var newMap = new int[newN];  // <-- map from new j -> old J0
+            var newMap = new int[newN];  // map from new j -> old canonical J0
 
             int newJ = 0;
             for (int j = 0; j < _n; j++)
@@ -320,7 +354,7 @@ namespace OptiSolver.NET.Services.Simplex
                 message: message
             );
 
-            // These properties assume your SolutionResult supports them
+            // Populate basic sensitivity outputs directly
             result.ReducedCosts = reducedCosts;
             result.HasAlternateOptima = hasAlternateOptima;
 
@@ -392,8 +426,6 @@ namespace OptiSolver.NET.Services.Simplex
                 if (_basis[r] >= 0)
                     continue;
 
-                // Find a column that can serve as a pivot for row r: prefer columns with a nonzero at row r
-                // and small/near-zero elsewhere. We'll pivot on (r+1, j) then eliminate the column from other rows.
                 int bestCol = -1;
                 double bestScore = double.PositiveInfinity;
 
@@ -406,7 +438,6 @@ namespace OptiSolver.NET.Services.Simplex
                     if (Math.Abs(a_rj) < EPSILON)
                         continue;
 
-                    // score = sum of absolute values in column excluding row r (smaller is better)
                     double colSumOthers = 0.0;
                     for (int i = 0; i < _m; i++)
                     {
@@ -415,7 +446,6 @@ namespace OptiSolver.NET.Services.Simplex
                         colSumOthers += Math.Abs(_tab[i + 1, j]);
                     }
 
-                    // Prefer columns that are close to unit columns already
                     double score = colSumOthers + Math.Abs(a_rj - 1.0);
                     if (score < bestScore - 1e-15)
                     {
@@ -426,7 +456,6 @@ namespace OptiSolver.NET.Services.Simplex
 
                 if (bestCol >= 0)
                 {
-                    // Perform a pivot to make column bestCol the unit vector at row r
                     int pivotRow = r + 1;
                     if (Math.Abs(_tab[pivotRow, bestCol]) < EPSILON)
                         continue;
@@ -655,7 +684,7 @@ namespace OptiSolver.NET.Services.Simplex
             {
                 int col = _basis[r - 1];
                 if (col >= 0 && col < _n)
-                    x[col] = Math.Max(0.0, _tab[r, _n]);
+                    x[col] = Math.Max(0.0, _tab[r, _n]); 
             }
             return x;
         }
@@ -719,7 +748,6 @@ namespace OptiSolver.NET.Services.Simplex
             return _canonical?.VariableMapping?.GetCanonicalVariableName(canonicalIndex) ?? $"x{canonicalIndex + 1}";
         }
 
-
         private string Round3(double v) => v.ToString("0.000");
 
         private void LogTableau()
@@ -753,7 +781,8 @@ namespace OptiSolver.NET.Services.Simplex
         }
         #endregion
 
-        #region Utilities
+        #region Utilities & Sensitivity Helpers
+
         private static bool Approximately(double a, double b, double tol = EPSILON) => Math.Abs(a - b) < tol;
 
         /// <summary>
@@ -764,13 +793,11 @@ namespace OptiSolver.NET.Services.Simplex
         {
             if (_columnMap == null)
             {
-                // identity mapping when columns haven’t been removed/reordered
                 if (tableauColumnIndex >= 0 && tableauColumnIndex < _canonical.ObjectiveCoefficients.Length)
                     return _canonical.ObjectiveCoefficients[tableauColumnIndex];
                 return 0.0;
             }
 
-            // Guard
             if (_canonical?.ObjectiveCoefficients == null || _columnMap == null)
                 return 0.0;
 
@@ -779,12 +806,10 @@ namespace OptiSolver.NET.Services.Simplex
 
             int canonicalIndexBeforeRemovals = _columnMap[tableauColumnIndex];
 
-            // Safety: ensure in range of the original canonical c-vector
             var cCanon = _canonical.ObjectiveCoefficients;
             if (canonicalIndexBeforeRemovals < 0 || canonicalIndexBeforeRemovals >= cCanon.Length)
                 return 0.0;
 
-            // Auxiliaries already have 0 in cCanon; but if you want to be explicit:
             var vm = _canonical.VariableMapping;
             if (vm != null && vm.IsAuxiliaryVariable(canonicalIndexBeforeRemovals))
                 return 0.0;
@@ -817,6 +842,145 @@ namespace OptiSolver.NET.Services.Simplex
             return xCanon;
         }
 
+        /// <summary>
+        /// Map the current tableau basis indices to their canonical indices using _columnMap.
+        /// Returns an array length m with canonical column indices for each basis var.
+        /// </summary>
+        private int[] MapBasisToCanonical(List<int> basisCols)
+        {
+            var vm = _canonical?.VariableMapping;
+            int[] result = new int[_m];
+            for (int r = 0; r < _m; r++)
+            {
+                int j = (r < basisCols.Count ? basisCols[r] : -1);
+                if (j >= 0 && _columnMap != null && j < _columnMap.Length)
+                    result[r] = _columnMap[j];
+                else
+                    result[r] = -1;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Build the basis matrix B from the canonical constraint matrix A, using
+        /// the canonical indices of the current basis variables.
+        /// </summary>
+        private double[,] BuildBasisMatrixFromCanonical(int[] basisCanonicalIndices)
+        {
+            var A = _canonical.ConstraintMatrix; // m x totalCanonicalVariables
+            var B = new double[_m, _m];
+            for (int col = 0; col < _m; col++)
+            {
+                int canonIdx = (col < basisCanonicalIndices.Length) ? basisCanonicalIndices[col] : -1;
+                if (canonIdx < 0) // missing -> keep column zeros (will cause singularity)
+                    continue;
+
+                for (int row = 0; row < _m; row++)
+                    B[row, col] = A[row, canonIdx];
+            }
+            return B;
+        }
+
+        /// <summary>
+        /// Safe accessor for objective coeff array.
+        /// </summary>
+        private static double SafeC(double[] c, int idx)
+        {
+            if (c == null || idx < 0 || idx >= c.Length)
+                return 0.0;
+            return c[idx];
+        }
+
+        /// <summary>
+        /// Invert a square matrix using Gaussian elimination with partial pivoting.
+        /// Returns null if singular/ill-conditioned.
+        /// </summary>
+        private static double[,] TryInvert(double[,] M)
+        {
+            if (M == null)
+                return null;
+            int n = M.GetLength(0);
+            if (n != M.GetLength(1))
+                return null;
+
+            // Augment with identity
+            var A = new double[n, 2 * n];
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = 0; j < n; j++)
+                    A[i, j] = M[i, j];
+                for (int j = 0; j < n; j++)
+                    A[i, n + j] = (i == j) ? 1.0 : 0.0;
+            }
+
+            // Gauss-Jordan with partial pivoting
+            for (int col = 0; col < n; col++)
+            {
+                // pivot
+                int piv = col;
+                double best = Math.Abs(A[piv, col]);
+                for (int r = col + 1; r < n; r++)
+                {
+                    double v = Math.Abs(A[r, col]);
+                    if (v > best)
+                    { best = v; piv = r; }
+                }
+                if (best < 1e-12)
+                    return null; // singular
+
+                // swap if needed
+                if (piv != col)
+                {
+                    for (int j = 0; j < 2 * n; j++)
+                    {
+                        double tmp = A[col, j];
+                        A[col, j] = A[piv, j];
+                        A[piv, j] = tmp;
+                    }
+                }
+
+                // normalize pivot row
+                double diag = A[col, col];
+                for (int j = 0; j < 2 * n; j++)
+                    A[col, j] /= diag;
+
+                // eliminate other rows
+                for (int r = 0; r < n; r++)
+                {
+                    if (r == col)
+                        continue;
+                    double f = A[r, col];
+                    if (Math.Abs(f) < 1e-18)
+                        continue;
+                    for (int j = 0; j < 2 * n; j++)
+                        A[r, j] -= f * A[col, j];
+                }
+            }
+
+            // Extract inverse
+            var inv = new double[n, n];
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                    inv[i, j] = A[i, n + j];
+            return inv;
+        }
+
+        /// <summary>
+        /// Multiply row vector (len m) by matrix (m x m): y^T = c_B^T B^{-1}
+        /// </summary>
+        private static double[] MultiplyRowVectorMatrix(double[] row, double[,] M)
+        {
+            int m = row.Length;
+            var y = new double[m];
+            for (int j = 0; j < m; j++)
+            {
+                double s = 0.0;
+                for (int i = 0; i < m; i++)
+                    s += row[i] * M[i, j];
+                y[j] = s;
+            }
+            return y;
+        }
 
         #endregion
     }
