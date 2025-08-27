@@ -7,7 +7,6 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 
-
 namespace OptiSolver.NET.Services.BranchAndBound
 {
     /// <summary>
@@ -32,11 +31,11 @@ namespace OptiSolver.NET.Services.BranchAndBound
         #region Options
         public override Dictionary<string, object> GetDefaultOptions() => new()
         {
-            { "MaxIterations", 250_000 },     
+            { "MaxIterations", 250_000 },
             { "Tolerance", 1e-9 },
             { "Verbose", false },
-            { "TimeLimit", 60.0 },            
-            { "AllowNegativeValues", false }  
+            { "TimeLimit", 60.0 },
+            { "AllowNegativeValues", false }
         };
         #endregion
 
@@ -64,7 +63,6 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 for (int i = 0; i < model.Variables.Count; i++)
                 {
                     var v = model.Variables[i];
-                    // VariableType enum should exist in your Core
                     if (v.Type != VariableType.Binary)
                         return false;
                 }
@@ -219,11 +217,21 @@ namespace OptiSolver.NET.Services.BranchAndBound
                     message: "Optimal (incumbent) found by B&B Knapsack"
                 );
 
+                // Footer summarizing best candidate for clarity in the output file
+                _iterationLog.AppendLine();
+                _iterationLog.AppendLine("=== BEST CANDIDATE SUMMARY (Knapsack) ===");
+                _iterationLog.AppendLine($"Objective = {value:0.###}");
+                _iterationLog.AppendLine($"x* = [ {string.Join(", ", x.Select(v => v.ToString("0")))} ]");
+
                 result.Info["NodeCount"] = _nodeCount;
                 result.Info["Fathomed"] = _fathomed;
                 result.Info["Explored"] = _explored;
                 result.Info["Capacity"] = capacity;
-                result.Info["Log"] = _iterationLog.ToString();
+
+                // Standardize: expose composed log under IterationLog (preferred) and Log (compat)
+                var composed = _iterationLog.ToString();
+                result.Info["IterationLog"] = composed;
+                result.Info["Log"] = composed;
 
                 // For consistency with the rest of the project:
                 result.AlgorithmUsed = AlgorithmName;
