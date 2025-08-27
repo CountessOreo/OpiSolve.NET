@@ -6,7 +6,7 @@ using OptiSolver.NET.Controller;
 using OptiSolver.NET.Services.Base;
 using OptiSolver.NET.Core;
 using OptiSolver.NET.Analysis;   // sensitivity/duality
-using OptiSolver.NET.Services.BranchAndBound; // for CanSolve guardrail on knapsack
+using OptiSolver.NET.Services.BranchAndBound; // for knapsack CanSolve guardrail
 
 namespace OptiSolver.NET.UI
 {
@@ -47,7 +47,8 @@ namespace OptiSolver.NET.UI
                     Console.WriteLine("  3) Branch & Bound 0-1 Knapsack   (single ≤ constraint + binary)");
                     Console.WriteLine("  4) Branch & Bound (Simplex, Mixed/Pure Integer)");
                     Console.WriteLine("  5) Cutting Plane (Gomory)        [not available yet]");
-                    Console.Write("Selection [1-5 or ?]: ");
+                    Console.WriteLine("  6) Nonlinear 1D Demo (f(x)=...)  [bonus]");
+                    Console.Write("Selection [1-6 or ?]: ");
                     var choice = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
 
                     if (choice == "?")
@@ -62,7 +63,7 @@ namespace OptiSolver.NET.UI
                     if (choice == "5")
                     {
                         Console.WriteLine("Selected solver is not available yet. Please choose another.\n");
-                        continue; // re-prompt selection (no fallback)
+                        continue; // re-prompt
                     }
 
                     solverKey = choice switch
@@ -70,6 +71,7 @@ namespace OptiSolver.NET.UI
                         "1" => "tableau",
                         "3" => "knapsack",
                         "4" => "bb-ilp",
+                        "6" => "nonlinear-demo",
                         _ => "revised",
                     };
                     break;
@@ -91,9 +93,17 @@ namespace OptiSolver.NET.UI
                 if (verb == "y" || verb == "yes")
                     options["Verbose"] = true;
 
-                // Optional: B&B-specific knobs
+                // Optional: B&B-specific knobs (and toggle for tableau relaxations)
                 if (solverKey == "bb-ilp")
                 {
+                    Console.Write("Use tableau relaxations for B&B subproblems? (y/N): ");
+                    var tt = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
+                    if (tt == "y" || tt == "yes")
+                    {
+                        // Flip the key; controller will inject options["BBRelaxationEngine"]="tableau"
+                        solverKey = "bb-ilp-tableau";
+                    }
+
                     Console.Write("B&B MaxNodes (blank=100000): ");
                     if (int.TryParse(Console.ReadLine(), out int maxNodes))
                         options["MaxNodes"] = maxNodes;
@@ -101,6 +111,32 @@ namespace OptiSolver.NET.UI
                     Console.Write("B&B TimeLimit seconds (blank=60): ");
                     if (double.TryParse(Console.ReadLine(), out double tl))
                         options["TimeLimit"] = tl;
+                }
+
+                // Nonlinear demo: collect function & bounds
+                if (solverKey == "nonlinear-demo")
+                {
+                    Console.Write("Enter function f(x) (e.g., x^2 + 3*x + 2): ");
+                    var fx = Console.ReadLine();
+                    Console.Write("Lower bound L (blank=-1e9): ");
+                    var sL = Console.ReadLine();
+                    Console.Write("Upper bound U (blank=+1e9): ");
+                    var sU = Console.ReadLine();
+                    Console.Write("Initial x0 (blank=0): ");
+                    var sX0 = Console.ReadLine();
+
+                    options["Function"] = string.IsNullOrWhiteSpace(fx) ? "x^2" : fx.Trim();
+                    if (double.TryParse(sL, out var L))
+                        options["LowerBound"] = L;
+                    if (double.TryParse(sU, out var U))
+                        options["UpperBound"] = U;
+                    if (double.TryParse(sX0, out var X0))
+                        options["InitialX"] = X0;
+
+                    Console.Write("Nonlinear verbose log? (y/N): ");
+                    var nv = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
+                    if (nv == "y" || nv == "yes")
+                        options["Verbose"] = true;
                 }
 
                 Console.WriteLine();
@@ -111,23 +147,31 @@ namespace OptiSolver.NET.UI
 
                 try
                 {
-                    // Parse model separately so we can reuse it for sensitivity
-                    var parser = new OptiSolver.NET.IO.InputParser();
-                    model = parser.ParseFile(path);
+                    // Parse model only when needed (nonlinear demo doesn't use it)
+                    if (solverKey == "nonlinear-demo")
+                    {
+                        model = new LPModel();
+                        Console.WriteLine("Nonlinear demo selected: skipping LP parsing.");
+                    }
+                    else
+                    {
+                        var parser = new OptiSolver.NET.IO.InputParser();
+                        model = parser.ParseFile(path);
 
-                    // QoL: echo detected size
-                    var m = model.Constraints.Count;
-                    var n = model.Variables.Count;
-                    Console.WriteLine($"Detected: m = {m} constraint(s), n = {n} variable(s).");
+                        // QoL: echo detected size
+                        var m = model.Constraints.Count;
+                        var n = model.Variables.Count;
+                        Console.WriteLine($"Detected: m = {m} constraint(s), n = {n} variable(s).");
+                    }
 
-                    // Guardrail: if user chose knapsack but the model isn't eligible, do not fallback
+                    // Guardrail: knapsack eligibility
                     if (solverKey == "knapsack")
                     {
                         var bb = new BranchBoundKnapsackSolver();
                         if (!bb.CanSolve(model))
                         {
                             Console.WriteLine("Knapsack solver not available for this model (requires single ≤ constraint and binary variables).");
-                            goto AskAgain; // skip solve; return to main menu
+                            goto AskAgain;
                         }
                     }
 
@@ -139,6 +183,7 @@ namespace OptiSolver.NET.UI
                     goto AskAgain;
                 }
 
+                // Present & persist results
                 OptiSolver.NET.IO.OutputWriter.WriteToConsole(result);
 
                 string defaultResults = Path.ChangeExtension(path, ".results.txt");
@@ -176,9 +221,7 @@ namespace OptiSolver.NET.UI
                     Console.Write("Run sensitivity analysis? (y/N): ");
                     var runSa = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
                     if (runSa == "y" || runSa == "yes")
-                    {
                         RunSensitivityMenu(model, result, path);
-                    }
                 }
 
             AskAgain:

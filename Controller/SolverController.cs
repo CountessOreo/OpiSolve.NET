@@ -6,6 +6,7 @@ using OptiSolver.NET.Services.Base;
 using OptiSolver.NET.Services.Simplex;
 using OptiSolver.NET.Services.BranchAndBound;
 using OptiSolver.NET.Exceptions;
+using OptiSolver.NET.Services.Nonlinear;
 
 namespace OptiSolver.NET.Controller
 {
@@ -134,19 +135,23 @@ namespace OptiSolver.NET.Controller
                     return bb.CanSolve(model) ? bb : null;
                 }
 
-                // General/mixed integer B&B using LP relaxations (Revised by default)
                 case "bb":
                 case "ilp":
                 case "bb-ilp":
                 case "branchbound":
                 case "branch-and-bound":
-                case "bb-tableau":                 // map to ILP B&B; controller sets option later
-                case "bb-ilp-tableau":            // map to ILP B&B; controller sets option later
-                case "branch-and-bound-tableau":  // map to ILP B&B; controller sets option later
+                case "bb-tableau":                 
+                case "bb-ilp-tableau":            
+                case "branch-and-bound-tableau":  
                 {
                     var bb = new BranchBoundILPSolver();
-                    return bb.CanSolve(model) ? bb : null;   // null if model has no integer vars
+                    return bb.CanSolve(model) ? bb : null;   
                 }
+
+                case "nonlinear":
+                case "nonlinear-demo":
+                case "nl":
+                return new NonlinearSolver();
             }
 
             // Fallback: auto-detect knapsack
