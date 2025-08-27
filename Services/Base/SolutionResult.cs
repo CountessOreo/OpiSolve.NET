@@ -13,7 +13,7 @@ namespace OptiSolver.NET.Services.Base
         // Overall status of the solve
         public SolutionStatus Status { get; set; } = SolutionStatus.NotSolved;
 
-        // Optimal objective values
+        // Optimal objective value (normalized for display if caller chose to do so)
         public double ObjectiveValue { get; set; }
 
         // Variable values solution
@@ -45,6 +45,12 @@ namespace OptiSolver.NET.Services.Base
 
         public bool HasAlternateOptima { get; set; }
 
+        /// <summary>
+        /// Sense of the original model (used by some UIs; optional).
+        /// Note: In Menu.cs we normalize ObjectiveValue already; still useful for reporting.
+        /// </summary>
+        public ObjectiveType ObjectiveSense { get; set; } = ObjectiveType.Minimize;
+
         // Convenience checks
         public bool IsOptimal => Status == SolutionStatus.Optimal;
         public bool IsInfeasible => Status == SolutionStatus.Infeasible;
@@ -72,17 +78,13 @@ namespace OptiSolver.NET.Services.Base
             return sb;
         }
 
-
         /// <summary>
-        /// 
+        /// Returns the objective as modeled (if caller kept raw solver sign and wants a display-only flip).
+        /// If you've already normalized ObjectiveValue (as in Menu.cs), you don't need this.
         /// </summary>
-        /// <param name="objectiveValue"></param>
-        /// <param name="variableValues"></param>
-        /// <param name="iterations"></param>
-        /// <param name="algorithm"></param>
-        /// <param name="solveTimeMs"></param>
-        /// <param name="message"></param>
-        /// <returns></returns>
+        public double GetDisplayObjective()
+            => ObjectiveSense == ObjectiveType.Maximize ? -ObjectiveValue : ObjectiveValue;
+
         public static SolutionResult CreateOptimal(
             double objectiveValue,
             double[] variableValues,
@@ -101,17 +103,10 @@ namespace OptiSolver.NET.Services.Base
                 SolveTimeMs = solveTimeMs,
                 AlgorithmUsed = algorithm,
                 Message = message,
-                HasAlternateOptima = hasAlternateOptima
+                HasAlternateOptima = hasAlternateOptima,
             };
         }
 
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="algorithm"></param>
-        /// <param name="message"></param>
-        /// <returns></returns>
         public static SolutionResult CreateInfeasible(
             string algorithm,
             string message = "Model is infeasible")
@@ -124,12 +119,6 @@ namespace OptiSolver.NET.Services.Base
             };
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="algorithm"></param>
-        /// <param name="message"></param>
-        /// <returns></returns>
         public static SolutionResult CreateUnbounded(
             string algorithm,
             string message = "Objective is unbounded")
@@ -148,13 +137,6 @@ namespace OptiSolver.NET.Services.Base
         public static SolutionResult CreateUnbounded(string message = "Objective is unbounded")
             => CreateUnbounded("N/A", message);
 
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="algorithm"></param>
-        /// <param name="errorMessage"></param>
-        /// <returns></returns>
         public static SolutionResult CreateError(
             string algorithm,
             string errorMessage)
@@ -167,15 +149,6 @@ namespace OptiSolver.NET.Services.Base
             };
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="algorithm"></param>
-        /// <param name="iterations"></param>
-        /// <param name="objectiveValue"></param>
-        /// <param name="variableValues"></param>
-        /// <param name="message"></param>
-        /// <returns></returns>
         public static SolutionResult CreateMaxIterationsReached(
             string algorithm,
             int iterations,

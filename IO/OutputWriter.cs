@@ -10,6 +10,70 @@ namespace OptiSolver.NET.IO
 {
     internal static class OutputWriter
     {
+        // ----------------- helpers -----------------
+        private static double DisplayObj(SolutionResult r)
+        {
+            // Print in user-sense: flip if it's a Max problem and the solver stored min-form.
+            // If r.ObjectiveValue has already been normalized upstream, this still prints correctly.
+            if (double.IsNaN(r.ObjectiveValue))
+                return double.NaN;
+            return r.ObjectiveSense == ObjectiveType.Maximize ? -r.ObjectiveValue : r.ObjectiveValue;
+        }
+
+        private static string Vec(double[] x) =>
+            x == null || x.Length == 0
+                ? "[]"
+                : $"[ {string.Join(", ", x.Select(DisplayHelper.Round3))} ]";
+
+        private static (string Key, string Log) TryGetLog(SolutionResult r)
+        {
+            if (r?.Info == null)
+                return (null, null);
+
+            // Prefer the full canonical+iterations block if provided
+            if (r.Info.TryGetValue("CanonicalAndIterations", out var full) && full is string sFull)
+                return ("CanonicalAndIterations", sFull);
+
+            if (r.Info.TryGetValue("IterationLog", out var iterObj) && iterObj is string s1)
+                return ("IterationLog", s1);
+
+            if (r.Info.TryGetValue("Log", out var s2Obj) && s2Obj is string s2)
+                return ("Log", s2);
+
+            return (null, null);
+        }
+
+        private static string ResolveStyle(SolutionResult r)
+        {
+            // If the solver stamped a style, use it.
+            if (r?.Info != null && r.Info.TryGetValue("Style", out var style) && style is string ss && !string.IsNullOrWhiteSpace(ss))
+                return ss;
+
+            // Fallback heuristics (legacy)
+            if (r?.AlgorithmUsed?.Contains("Primal Simplex") == true)
+                return "Tableau";
+            if (r?.AlgorithmUsed?.Contains("Revised Simplex") == true)
+                return "Revised (product form & price-out)";
+            if (r?.AlgorithmUsed?.StartsWith("Branch & Bound") == true)
+                return "Branch & Bound";
+            return "N/A";
+        }
+
+        private static string RelaxationEngine(SolutionResult r)
+        {
+            if (r?.Info != null && r.Info.TryGetValue("RelaxationEngine", out var eng) && eng is string se && !string.IsNullOrWhiteSpace(se))
+            {
+                return se switch
+                {
+                    "tableau" => "Primal Simplex (Tableau)",
+                    "revised" => "Revised Simplex (Two-Phase)",
+                    _ => se
+                };
+            }
+            return null;
+        }
+
+        // ----------------- console summary -----------------
         public static void WriteToConsole(SolutionResult r)
         {
             Console.WriteLine();
@@ -19,18 +83,20 @@ namespace OptiSolver.NET.IO
             if (!string.IsNullOrWhiteSpace(r.Message))
                 Console.WriteLine($"Message   : {r.Message}");
 
-            // Style hint (tableau vs revised vs B&B)
-            string style = r.AlgorithmUsed?.Contains("Primal Simplex") == true ? "Tableau"
-                         : r.AlgorithmUsed?.Contains("Revised Simplex") == true ? "Revised (product form & price-out)"
-                         : r.AlgorithmUsed?.StartsWith("Branch & Bound") == true ? "Branch & Bound over Revised Simplex relaxations"
-                         : "N/A";
+            var style = ResolveStyle(r);
             Console.WriteLine($"Style     : {style}");
+
+            var relax = RelaxationEngine(r);
+            if (!string.IsNullOrWhiteSpace(relax))
+                Console.WriteLine($"Relaxation: {relax}");
 
             if (r.IsOptimal || r.Status == SolutionStatus.AlternativeOptimal)
             {
-                Console.WriteLine($"Objective : {DisplayHelper.Round3(r.ObjectiveValue)}");
+                var disp = DisplayObj(r);
+                Console.WriteLine($"Objective : {DisplayHelper.Round3(disp)}");
+
                 if (r.VariableValues != null && r.VariableValues.Length > 0)
-                    Console.WriteLine($"x*        : [ {string.Join(", ", r.VariableValues.Select(DisplayHelper.Round3))} ]");
+                    Console.WriteLine($"x*        : {Vec(r.VariableValues)}");
 
                 if (r.ReducedCosts != null)
                     Console.WriteLine($"rc (red.) : [ {string.Join(", ", r.ReducedCosts.Select(DisplayHelper.Round3))} ]");
@@ -54,39 +120,14 @@ namespace OptiSolver.NET.IO
             {
                 Console.WriteLine();
                 Console.WriteLine("=== ITERATION LOG (preview) ===");
-                var preview = string.Join(Environment.NewLine, (log ?? "").Split('\n').Take(50));
-                Console.WriteLine(preview);
-                if ((log ?? "").Split('\n').Length > 50)
+                var lines = (log ?? "").Split('\n');
+                Console.WriteLine(string.Join(Environment.NewLine, lines.Take(50)));
+                if (lines.Length > 50)
                     Console.WriteLine("... (truncated)");
             }
         }
 
-        public static void WriteLogToFile(SolutionResult r, string filePath)
-        {
-            var (_, log) = TryGetLog(r);
-            if (string.IsNullOrEmpty(log))
-            {
-                File.WriteAllText(filePath, "No iteration log available.");
-                return;
-            }
-            File.WriteAllText(filePath, log);
-        }
-
-        private static (string Key, string Log) TryGetLog(SolutionResult r)
-        {
-            if (r?.Info == null)
-                return (null, null);
-
-            // These are the typical keys used by your solvers
-            if (r.Info.TryGetValue("IterationLog", out var iterObj) && iterObj is string s1)
-                return ("IterationLog", s1);
-
-            if (r.Info.TryGetValue("Log", out var s2Obj) && s2Obj is string s2)
-                return ("Log", s2);
-
-            return (null, null);
-        }
-
+        // ----------------- full result to file -----------------
         public static void WriteFullResultToFile(SolutionResult r, string filePath)
         {
             var sb = new StringBuilder();
@@ -98,21 +139,22 @@ namespace OptiSolver.NET.IO
             if (!string.IsNullOrWhiteSpace(r.Message))
                 sb.AppendLine($"Message   : {r.Message}");
 
-            // Style hint (tableau vs revised vs B&B)
-            string style = r.AlgorithmUsed?.Contains("Primal Simplex") == true ? "Tableau"
-                         : r.AlgorithmUsed?.Contains("Revised Simplex") == true ? "Revised (product form & price-out)"
-                         : r.AlgorithmUsed?.StartsWith("Branch & Bound") == true ? "Branch & Bound over Revised Simplex relaxations"
-                         : "N/A";
+            var style = ResolveStyle(r);
             sb.AppendLine($"Style     : {style}");
 
-            sb.AppendLine($"Objective : {(double.IsNaN(r.ObjectiveValue) ? "NaN" : UI.DisplayHelper.Round3(r.ObjectiveValue))}");
+            var relax = RelaxationEngine(r);
+            if (!string.IsNullOrWhiteSpace(relax))
+                sb.AppendLine($"Relaxation: {relax}");
+
+            var disp = DisplayObj(r);
+            sb.AppendLine($"Objective : {(double.IsNaN(disp) ? "NaN" : UI.DisplayHelper.Round3(disp))}");
             sb.AppendLine($"Iterations: {r.Iterations}");
             sb.AppendLine($"SolveTime : {r.SolveTimeMs:0.000} ms");
             sb.AppendLine();
 
             // Primal solution
             if (r.VariableValues != null && r.VariableValues.Length > 0)
-                sb.AppendLine($"x*        : [ {string.Join(", ", r.VariableValues.Select(UI.DisplayHelper.Round3))} ]");
+                sb.AppendLine($"x*        : {Vec(r.VariableValues)}");
 
             // Reduced costs / duals / shadow prices
             if (r.ReducedCosts != null)
@@ -130,7 +172,10 @@ namespace OptiSolver.NET.IO
             if (!string.IsNullOrEmpty(log))
             {
                 sb.AppendLine("=== CANONICAL FORM & ITERATIONS ===");
-                sb.AppendLine(log); // your simplex/B&B logs already print at 3 d.p.
+                // We keep the solver's raw block intact. If you want these internal
+                // values automatically “user-sense” too, move the normalization into
+                // the solver when composing this block (recommended).
+                sb.AppendLine(log);
             }
             else
             {
@@ -140,5 +185,11 @@ namespace OptiSolver.NET.IO
             File.WriteAllText(filePath, sb.ToString());
         }
 
+        // ----------------- iteration log only -----------------
+        public static void WriteLogToFile(SolutionResult r, string filePath)
+        {
+            var (_, log) = TryGetLog(r);
+            File.WriteAllText(filePath, string.IsNullOrEmpty(log) ? "No iteration log available." : log);
+        }
     }
 }

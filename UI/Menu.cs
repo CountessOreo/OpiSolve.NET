@@ -7,6 +7,7 @@ using OptiSolver.NET.Services.Base;
 using OptiSolver.NET.Core;
 using OptiSolver.NET.Analysis;   // sensitivity/duality
 using OptiSolver.NET.Services.BranchAndBound; // for knapsack CanSolve guardrail
+using OptiSolver.NET.Services.Simplex;        // RevisedSimplexSolver for LP relaxation
 
 namespace OptiSolver.NET.UI
 {
@@ -181,17 +182,9 @@ namespace OptiSolver.NET.UI
 
                     result = controller.SolveModel(model, solverKey, options);
 
-                    // ======== OBJ-NORMALIZE for display & files ========
-                    // Many solvers minimize -Z for Max problems; flip sign back once for human-facing outputs.
-                    if (model.ObjectiveType == ObjectiveType.Maximize && !double.IsNaN(result.ObjectiveValue))
-                    {
-                        result.ObjectiveValue = -result.ObjectiveValue;
-                    }
-                    // Keep the sense available downstream (optional)
+                    // Annotate sense for downstream display; do NOT flip objective value here.
                     result.ObjectiveSense = model.ObjectiveType;
                     result.Info["ObjectiveSense"] = model.ObjectiveType;
-                    // ==================================================
-
                 }
                 catch (Exception ex)
                 {
@@ -255,6 +248,22 @@ namespace OptiSolver.NET.UI
         // =========================
         private static void RunSensitivityMenu(LPModel model, SolutionResult result, string inputPath)
         {
+            // Ensure we have LP sensitivity artifacts. If not (e.g., B&B or Tableau without duals),
+            // solve the LP RELAXATION with REVISED SIMPLEX right now and use that for analysis.
+            var saModel = model;
+            var saResult = result;
+
+            bool needsLpArtifacts = NeedsLpArtifacts(result);
+            if (needsLpArtifacts)
+            {
+                Console.WriteLine("[info] Sensitivity needs LP artifacts (basis/duals). Solving continuous relaxation with Revised Simplex...");
+                saModel = MakeContinuousRelaxation(model);
+                var revised = new RevisedSimplexSolver();
+                saResult = revised.Solve(saModel);
+                saResult.ObjectiveSense = saModel.ObjectiveType;
+                Console.WriteLine($"[info] LP relaxation: status={saResult.Status}, z={saResult.ObjectiveValue:0.###} ({saResult.ObjectiveSense})");
+            }
+
             while (true)
             {
                 Console.WriteLine();
@@ -282,18 +291,18 @@ namespace OptiSolver.NET.UI
                     {
                         case "1":
                         {
-                            var report = SensitivityAnalyser.BuildReport(model, result);
+                            var report = SensitivityAnalyser.BuildReport(saModel, saResult);
                             Console.WriteLine(report);
                             MaybeSave(report, Path.ChangeExtension(inputPath, ".sensitivity.txt"));
                             break;
                         }
                         case "2":
                         {
-                            var y = ShadowPriceCalculator.FromRevisedArtifacts(result)
-                                    ?? ShadowPriceCalculator.TryFromTableau(result);
+                            var y = ShadowPriceCalculator.FromRevisedArtifacts(saResult)
+                                    ?? ShadowPriceCalculator.TryFromTableau(saResult);
                             if (y == null)
                             {
-                                Console.WriteLine("Shadow prices not available. Tip: run the model with the Revised Simplex solver so B^{-1}/dual artifacts are produced, then retry.");
+                                Console.WriteLine("Shadow prices not available. Tip: run with Revised Simplex so B^{-1}/dual artifacts are produced.");
                             }
                             else
                             {
@@ -304,7 +313,7 @@ namespace OptiSolver.NET.UI
                         }
                         case "3":
                         {
-                            var ranges = RangeAnalyser.CostRangesForNonBasic(model, result);
+                            var ranges = RangeAnalyser.CostRangesForNonBasic(saModel, saResult);
                             if (ranges.Count == 0)
                             { Console.WriteLine("No non-basic ranges."); break; }
                             Console.WriteLine("-- Cost Ranges (Non-Basic) --");
@@ -315,7 +324,7 @@ namespace OptiSolver.NET.UI
                         }
                         case "4":
                         {
-                            var ranges = RangeAnalyser.CostRangesForBasic(model, result);
+                            var ranges = RangeAnalyser.CostRangesForBasic(saModel, saResult);
                             if (ranges.Count == 0)
                             { Console.WriteLine("No basic ranges."); break; }
                             Console.WriteLine("-- Cost Ranges (Basic) --");
@@ -326,7 +335,7 @@ namespace OptiSolver.NET.UI
                         }
                         case "5":
                         {
-                            var ranges = RangeAnalyser.RhsRanges(model, result);
+                            var ranges = RangeAnalyser.RhsRanges(saModel, saResult);
                             if (ranges.Count == 0)
                             { Console.WriteLine("No RHS ranges."); break; }
                             Console.WriteLine("-- RHS Ranges --");
@@ -343,7 +352,7 @@ namespace OptiSolver.NET.UI
                             Console.Write("Δb_i value: ");
                             if (!double.TryParse(Console.ReadLine(), out double delta))
                             { Console.WriteLine("Invalid delta."); break; }
-                            var (xNew, objNew) = SensitivityAnalyser.ApplyRhsChange(model, result, i - 1, delta);
+                            var (xNew, objNew) = SensitivityAnalyser.ApplyRhsChange(saModel, saResult, i - 1, delta);
                             Console.WriteLine($"New objective (same basis): {objNew:0.000}");
                             Console.WriteLine($"x' = [{string.Join(", ", xNew.Select(v => v.ToString("0.000")))}]");
                             break;
@@ -356,7 +365,7 @@ namespace OptiSolver.NET.UI
                             Console.Write("Δc_j value: ");
                             if (!double.TryParse(Console.ReadLine(), out double dc))
                             { Console.WriteLine("Invalid delta."); break; }
-                            var (xNew, objNew) = SensitivityAnalyser.ApplyCostChange(model, result, j - 1, dc);
+                            var (xNew, objNew) = SensitivityAnalyser.ApplyCostChange(saModel, saResult, j - 1, dc);
                             Console.WriteLine($"New objective (same basis): {objNew:0.000}");
                             Console.WriteLine($"x' = [{string.Join(", ", xNew.Select(v => v.ToString("0.000")))}]");
                             break;
@@ -376,7 +385,7 @@ namespace OptiSolver.NET.UI
                             Console.Write("c_new: ");
                             if (!double.TryParse(Console.ReadLine(), out double cNew))
                             { Console.WriteLine("Invalid."); break; }
-                            var (rc, profit) = SensitivityAnalyser.EvaluateNewActivity(model, result, aNew, cNew);
+                            var (rc, profit) = SensitivityAnalyser.EvaluateNewActivity(saModel, saResult, aNew, cNew);
                             Console.WriteLine($"Reduced cost rc = {rc:0.000}  → {(profit ? "Profitable to add" : "Not profitable")} (given current duals).");
                             break;
                         }
@@ -395,13 +404,13 @@ namespace OptiSolver.NET.UI
                             Console.Write("b_new: ");
                             if (!double.TryParse(Console.ReadLine(), out double bNew))
                             { Console.WriteLine("Invalid."); break; }
-                            var (slack, feasible) = SensitivityAnalyser.EvaluateNewConstraint(model, result, aNew, bNew);
+                            var (slack, feasible) = SensitivityAnalyser.EvaluateNewConstraint(saModel, saResult, aNew, bNew);
                             Console.WriteLine($"Slack = {slack:0.000}  → {(feasible ? "Feasible under current x*" : "Violates current x*")}");
                             break;
                         }
                         case "10":
                         {
-                            var summary = DualityAnalyser.CheckAndSummarize(model, result);
+                            var summary = DualityAnalyser.CheckAndSummarize(saModel, saResult);
                             Console.WriteLine(summary);
                             MaybeSave(summary, Path.ChangeExtension(inputPath, ".duality.txt"));
                             break;
@@ -419,6 +428,67 @@ namespace OptiSolver.NET.UI
         }
 
         // ------------- helpers -------------
+
+        /// <summary>
+        /// Decide whether the current result lacks LP artifacts needed for sensitivity.
+        /// </summary>
+        private static bool NeedsLpArtifacts(SolutionResult r)
+        {
+            if (r == null)
+                return true;
+
+            // Prefer Revised artifacts: BasisIndices + duals or reduced costs
+            bool hasBasis = r.Info != null && r.Info.ContainsKey("BasisIndices");
+            bool hasDuals = (r.DualValues != null && r.DualValues.Length > 0)
+                            || (r.Info != null && (r.Info.ContainsKey("DualY") || r.Info.ContainsKey("DualValues")));
+            bool hasReduced = r.ReducedCosts != null && r.ReducedCosts.Length > 0;
+
+            // If any of these are missing, we’ll regenerate via Revised Simplex solve.
+            bool isBBSolve = (r.AlgorithmUsed?.StartsWith("Branch & Bound") ?? false);
+            return isBBSolve || !(hasBasis && (hasDuals || hasReduced));
+        }
+
+        /// <summary>
+        /// Build the continuous relaxation: all integer/binary vars become continuous ≥ 0.
+        /// Keep binary upper bounds ≤ 1.
+        /// </summary>
+        private static LPModel MakeContinuousRelaxation(LPModel m)
+        {
+            var lp = new LPModel
+            {
+                ObjectiveType = m.ObjectiveType,
+                Name = string.IsNullOrWhiteSpace(m.Name) ? "LP Relaxation" : (m.Name + " (LP Relaxation)")
+            };
+
+            // Variables
+            foreach (var v in m.Variables)
+            {
+                double ub = v.UpperBound;
+                if (v.Type == VariableType.Binary)
+                    ub = Math.Min(ub, 1.0);
+
+                lp.Variables.Add(new Variable(
+                    index: v.Index,
+                    name: v.Name,
+                    coefficient: v.Coefficient,
+                    type: VariableType.Positive, // continuous ≥ 0
+                    lowerBound: Math.Max(0.0, v.LowerBound),
+                    upperBound: double.IsInfinity(ub) ? double.PositiveInfinity : Math.Max(0.0, ub)
+                ));
+            }
+
+            // Constraints (copy as-is)
+            foreach (var c in m.Constraints)
+            {
+                var nc = new Constraint { Relation = c.Relation, RightHandSide = c.RightHandSide };
+                foreach (var aij in c.Coefficients)
+                    nc.Coefficients.Add(aij);
+                lp.Constraints.Add(nc);
+            }
+
+            return lp;
+        }
+
         private static string Fmt(double v) => double.IsInfinity(v) ? "±∞" : v.ToString("0.000");
         private static string Lines(IEnumerable<string> lines) => string.Join(Environment.NewLine, lines);
 

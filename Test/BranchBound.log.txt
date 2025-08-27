@@ -1,16 +1,3 @@
-=== OPTISOLVER.NET RESULT ===
-Algorithm : Branch & Bound (MILP-Integer)
-Status    : Optimal
-Message   : Optimal (incumbent) via Branch & Bound
-Style     : Branch & Bound over Tableau relaxations
-Relaxation: Primal Simplex (Tableau)
-Objective : 13,000
-Iterations: 1
-SolveTime : 35,609 ms
-
-x*        : [ 2,000, 0,000, 1,000 ]
-
-=== CANONICAL FORM & ITERATIONS ===
 === BRANCH & BOUND (MILP) over LP RELAXATIONS ===
 Objective sense        : Maximize
 Relaxation engine used : Primal Simplex (Tableau)
@@ -74,4 +61,3 @@ Variables: [ 2,000, 0,000, 1,000 ]
 === BEST CANDIDATE SUMMARY ===
 Incumbent objective = 13
 x* = [ 2, 0, 1 ]
-

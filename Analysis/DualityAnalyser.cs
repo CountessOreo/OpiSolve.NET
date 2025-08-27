@@ -7,81 +7,227 @@ using OptiSolver.NET.Services.Simplex;
 
 namespace OptiSolver.NET.Analysis
 {
-    /// <summary>
-    /// Builds/summarizes the dual, solves it via RevisedSimplex, and checks strong/weak duality.
-    /// </summary>
     public static class DualityAnalyser
     {
-        public static string CheckAndSummarize(LPModel primal, SolutionResult primalRes)
+        /// <summary>
+        /// Check duality on the continuous relaxation.
+        /// Always reports user-sense objectives (no sign confusion).
+        /// </summary>
+        public static string CheckAndSummarize(LPModel originalModel, SolutionResult lastResult = null)
         {
-            try
+            // 1) Continuous relaxation (ints/binaries -> continuous x >= 0, keep binary UB<=1)
+            var p = MakeContinuousRelaxation(originalModel);
+
+            // 2) Solve primal LP with Revised Simplex (to get duals if available)
+            var solver = new RevisedSimplexSolver();
+            var pr = solver.Solve(p);
+            pr.ObjectiveSense = p.ObjectiveType; // annotate for downstream formatters
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== Duality Check (Continuous Relaxation) ===");
+            sb.AppendLine($"Primal status: {pr.Status}");
+
+            if (!pr.IsOptimal || pr.VariableValues == null)
             {
-                var dual = BuildDual(primal);
-                var solver = new RevisedSimplexSolver();
-                var dualRes = solver.Solve(dual);
+                sb.AppendLine("Primal not optimal or no solution vector; cannot verify strong duality.");
+                return sb.ToString();
+            }
 
-                var sb = new StringBuilder();
-                sb.AppendLine("Dual model solved with Revised Simplex.");
-                sb.AppendLine($"Dual status: {dualRes.Status}, z*={dualRes.ObjectiveValue:0.000}");
+            // 3) Compute user-sense primal objective directly from data: z_P = c·x
+            double zP_user = DotObjective(p, pr.VariableValues);
+            sb.AppendLine($"Primal z* (user-sense): {zP_user:0.000}");
 
-                if (primalRes.IsOptimal && dualRes.IsOptimal)
+            // 4) If primal produced duals, use b·π; else try explicit dual solve (for standard Max-LEQ)
+            var pi = pr.DualValues;
+            if (pi != null && pi.Length == p.Constraints.Count)
+            {
+                sb.AppendLine($"Dual variables (π): [ {string.Join(", ", pi.Select(v => v.ToString("0.000")))} ]");
+
+                double zD_user = DotBpi(p, pi);
+                double gap = Math.Abs(zP_user - zD_user);
+                bool strong = gap <= 1e-6;
+
+                sb.AppendLine($"Dual z* (b·π): {zD_user:0.000}");
+                sb.AppendLine($"Strong Duality: {(strong ? "YES" : "NO")} (|z_P - z_D|={gap:0.000000})");
+                return sb.ToString();
+            }
+
+            // 5) No duals from primal run; attempt explicit dual if in standard Max-LEQ form
+            if (IsStandardMaxLEQ(p))
+            {
+                var d = BuildDualForStandardMaxLEQ(p); // Min b^T y  s.t. A^T y ≥ c, y ≥ 0
+                var dr = solver.Solve(d);
+                dr.ObjectiveSense = d.ObjectiveType;
+
+                if (dr.IsOptimal && dr.VariableValues != null)
                 {
-                    var pObj = primalRes.ObjectiveValue;
-                    var dObj = dualRes.ObjectiveValue;
+                    // Compute dual objective from y (user-sense) as b·y
+                    double zD_user = DotBWithDualVars(d, dr.VariableValues); // careful: dual's variables are the y's
+                    double gap = Math.Abs(zP_user - zD_user);
+                    bool strong = gap <= 1e-6;
 
-                    bool strong = Math.Abs(pObj - dObj) < 1e-6 &&
-                                  primal.ObjectiveType == ObjectiveType.Maximize;
-                    // If primal is minimize, equal optimums still indicate strong duality (sign sense differs).
-                    if (primal.ObjectiveType == ObjectiveType.Minimize)
-                        strong = Math.Abs(pObj - dObj) < 1e-6;
-
-                    sb.AppendLine($"Strong Duality: {(strong ? "YES" : "NO")} (|z_P - z_D|={Math.Abs(pObj - dObj):0.000000})");
+                    sb.AppendLine("Dual variables not returned by primal; solved explicit dual instead.");
+                    sb.AppendLine($"Dual status: {dr.Status}");
+                    sb.AppendLine($"Dual z* (user-sense, b·y): {zD_user:0.000}");
+                    sb.AppendLine($"Strong Duality: {(strong ? "YES" : "NO")} (|z_P - z_D|={gap:0.000000})");
                 }
                 else
                 {
-                    sb.AppendLine("Weak Duality holds (always). One/both models not optimal.");
+                    sb.AppendLine("Dual variables not available. Explicit dual solve did not reach optimality.");
                 }
-
-                return sb.ToString();
             }
-            catch (Exception ex)
+            else
             {
-                return $"Duality check failed: {ex.Message}";
+                sb.AppendLine("Dual variables not available. (Primal not in standard Max-≤-x≥0 form for explicit dual build.)");
+                sb.AppendLine("Tip: solve the relaxation with Revised Simplex to produce dual artifacts.");
             }
+
+            return sb.ToString();
         }
 
-        // Basic dual builder for: max c^T x, s.t. A x <= b, x >= 0
-        // Converts all constraints and bounds accordingly. More exotic cases (>=, =) are handled by canonical transformer.
-        public static LPModel BuildDual(LPModel primal)
+        // ----------------- Objective helpers (sign-robust) -----------------
+
+        /// <summary>Compute user-sense primal objective directly: z = c·x for the given LP model and x.</summary>
+        private static double DotObjective(LPModel p, double[] x)
         {
-            var canon = new ModelCanonicalTransformer().Canonicalize(primal); // standardize
-            int m = canon.ConstraintCount;
-            int n = canon.TotalVariables;
-            var A = canon.ConstraintMatrix;
-            var b = canon.RightHandSide;
-            var c = (double[])canon.ObjectiveCoefficients.Clone();
-
-            // Dual: minimize b^T y, s.t. A^T y >= c (if primal is max with <=)
-            var dual = new LPModel("Dual", ObjectiveType.Minimize);
-            // y variables (one per row)
-            for (int i = 0; i < m; i++)
-                dual.AddVariable(b[i], VariableType.Positive); // objective coefficients are b_i
-
-            // constraints: A^T y >= c  → multiply by -1 to use <= form if needed
+            int n = Math.Min(p.Variables.Count, x?.Length ?? 0);
+            double z = 0.0;
             for (int j = 0; j < n; j++)
-            {
-                var col = new double[m];
-                for (int i = 0; i < m; i++)
-                    col[i] = A[i, j];
+                z += p.Variables[j].Coefficient * x[j];
+            // If p is Minimize, c·x is already the correct user-sense value;
+            // If p is Maximize, c·x is also the correct user-sense value.
+            return z;
+        }
 
-                // We’ll store ≥ by negating both sides to fit ConstraintRelation.GreaterOrEqual if supported in LPModel
-                // LPModel supports relations directly, so we can add as ≥
-                dual.AddConstraint(col.ToList(), ConstraintRelation.GreaterThanOrEqual, c[j]);
+        /// <summary>b·π using the primal's b and the primal-run dual vector π.</summary>
+        private static double DotBpi(LPModel p, double[] pi)
+        {
+            int m = Math.Min(p.Constraints.Count, pi?.Length ?? 0);
+            double z = 0.0;
+            for (int i = 0; i < m; i++)
+                z += p.Constraints[i].RightHandSide * pi[i];
+            return z;
+        }
+
+        /// <summary>b·y computed from the dual model's variables (which correspond 1:1 to primal constraints).</summary>
+        private static double DotBWithDualVars(LPModel dual, double[] y)
+        {
+            // The dual we build has variables y_i with objective coeffs b_i (from primal).
+            // So b is dual.Variables[].Coefficient.
+            int m = Math.Min(dual.Variables.Count, y?.Length ?? 0);
+            double z = 0.0;
+            for (int i = 0; i < m; i++)
+                z += dual.Variables[i].Coefficient * y[i];
+            return z;
+        }
+
+        // ----------------- Relaxation + Dual builders -----------------
+
+        /// <summary>
+        /// Clone model and relax all integer/binary variables to continuous nonnegative.
+        /// Binary upper bounds are kept ≤ 1.
+        /// </summary>
+        private static LPModel MakeContinuousRelaxation(LPModel m)
+        {
+            var lp = new LPModel
+            {
+                ObjectiveType = m.ObjectiveType,
+                Name = string.IsNullOrWhiteSpace(m.Name) ? "LP Relaxation" : (m.Name + " (LP Relaxation)")
+            };
+
+            // Variables
+            foreach (var v in m.Variables)
+            {
+                double ub = v.UpperBound;
+                if (v.Type == VariableType.Binary)
+                    ub = Math.Min(ub, 1.0);
+
+                lp.Variables.Add(new Variable(
+                    index: v.Index,
+                    name: v.Name,
+                    coefficient: v.Coefficient,
+                    type: VariableType.Positive,                 // continuous ≥ 0
+                    lowerBound: Math.Max(0.0, v.LowerBound),
+                    upperBound: double.IsInfinity(ub) ? double.PositiveInfinity : Math.Max(0.0, ub)
+                ));
             }
 
-            // y >= 0 (already by variable types)
-            dual.ValidateModel();
-            return dual;
+            // Constraints
+            foreach (var c in m.Constraints)
+            {
+                var nc = new Constraint
+                {
+                    Relation = c.Relation,
+                    RightHandSide = c.RightHandSide
+                };
+                foreach (var aij in c.Coefficients)
+                    nc.Coefficients.Add(aij);
+                lp.Constraints.Add(nc);
+            }
+
+            return lp;
+        }
+
+        /// <summary>Detects standard primal form: Max cᵀx s.t. A x ≤ b, x ≥ 0.</summary>
+        private static bool IsStandardMaxLEQ(LPModel p)
+        {
+            if (p.ObjectiveType != ObjectiveType.Maximize)
+                return false;
+            if (p.Variables.Any(v => v.LowerBound < -1e-12))
+                return false;
+
+            // Only ≤ allowed for this simple dual builder
+            if (p.Constraints.Any(c => c.Relation != ConstraintRelation.LessThanOrEqual))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Build the dual of a standard-form primal:
+        ///   Max cᵀx  s.t. A x ≤ b,  x ≥ 0
+        /// Dual:
+        ///   Min bᵀy  s.t. Aᵀ y ≥ c,  y ≥ 0
+        /// </summary>
+        private static LPModel BuildDualForStandardMaxLEQ(LPModel p)
+        {
+            int m = p.Constraints.Count;
+            int n = p.Variables.Count;
+
+            var d = new LPModel
+            {
+                ObjectiveType = ObjectiveType.Minimize,
+                Name = (p.Name ?? "Primal") + " — Dual"
+            };
+
+            // Dual variables y_i ≥ 0 with objective coeff b_i
+            for (int i = 0; i < m; i++)
+            {
+                double bi = p.Constraints[i].RightHandSide;
+                d.Variables.Add(new Variable(
+                    index: i,
+                    name: $"y{i + 1}",
+                    coefficient: bi,
+                    type: VariableType.Positive,
+                    lowerBound: 0.0,
+                    upperBound: double.PositiveInfinity
+                ));
+            }
+
+            // Dual constraints: Aᵀ y ≥ c
+            for (int j = 0; j < n; j++)
+            {
+                var cons = new Constraint
+                {
+                    Relation = ConstraintRelation.GreaterThanOrEqual,
+                    RightHandSide = p.Variables[j].Coefficient
+                };
+                for (int i = 0; i < m; i++)
+                    cons.Coefficients.Add(p.Constraints[i].Coefficients[j]); // Aᵀ
+                d.Constraints.Add(cons);
+            }
+
+            return d;
         }
     }
 }

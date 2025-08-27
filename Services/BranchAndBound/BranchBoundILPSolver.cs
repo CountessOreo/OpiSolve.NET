@@ -8,15 +8,6 @@ using OptiSolver.NET.Services.Simplex;
 
 namespace OptiSolver.NET.Services.BranchAndBound
 {
-    /// <summary>
-    /// Branch & Bound for mixed/pure integer programs (MILP with integer vars).
-    /// LP relaxations can be solved by Revised Simplex (default) or Primal Simplex (Tableau)
-    /// based on options["BBRelaxationEngine"] = "revised" | "tableau".
-    /// - Branch variable selection: fractional part closest to 0.5; tie -> lowest index.
-    /// - Binary branch: x = 0 and x = 1
-    /// - General integer branch: x <= floor(x*) and x >= ceil(x*)
-    /// - DFS search with bound-based pruning for max/min objectives.
-    /// </summary>
     public sealed class BranchBoundILPSolver : SolverBase
     {
         public override string AlgorithmName => "Branch & Bound (MILP-Integer)";
@@ -31,8 +22,7 @@ namespace OptiSolver.NET.Services.BranchAndBound
             { "Verbose", false },
             { "BranchRule", "closest-0.5" },
             { "PreferOnesFirst", false },
-            // NEW: choose which engine solves the LP relaxations in nodes ("revised" | "tableau")
-            { "BBRelaxationEngine", "revised" }
+            { "BBRelaxationEngine", "revised" } // "revised" | "tableau"
         };
         #endregion
 
@@ -40,10 +30,7 @@ namespace OptiSolver.NET.Services.BranchAndBound
         {
             if (!base.CanSolve(model))
                 return false;
-
-            // Must have at least one discrete var (Binary or Integer). Continuous vars are allowed (mixed).
-            bool hasDiscrete = model.Variables.Any(v => v.Type == VariableType.Binary || v.Type == VariableType.Integer);
-            return hasDiscrete;
+            return model.Variables.Any(v => v.Type == VariableType.Binary || v.Type == VariableType.Integer);
         }
 
         public override SolutionResult Solve(LPModel model, Dictionary<string, object> options = null)
@@ -57,33 +44,28 @@ namespace OptiSolver.NET.Services.BranchAndBound
             if (!CanSolve(model))
                 return SolutionResult.CreateError(AlgorithmName, "Model has no integer/binary variables (not an IP/MIP).");
 
-            // Root model
             var rootModel = CloneModel(model);
 
-            // Select LP relaxation engine
             string engine = GetOption(opt, "BBRelaxationEngine", "revised")?.ToString()?.ToLowerInvariant();
             bool useRevised = engine != "tableau";
 
-            // LP relaxation solver instances
             var revised = useRevised ? new RevisedSimplexSolver() : null;
             var tableau = useRevised ? null : new PrimalSimplexTableauSolver();
 
-            var isMax = model.ObjectiveType == ObjectiveType.Maximize;
+            bool isMax = model.ObjectiveType == ObjectiveType.Maximize;
 
-            // Incumbent
+            // Incumbent stored in RAW min-form to keep pruning consistent
             double incumbentVal = isMax ? double.NegativeInfinity : double.PositiveInfinity;
             double[] incumbentX = null;
 
             int explored = 0, fathomed = 0, branched = 0;
 
-            // Composed B&B log (with every subproblem's canonical + iterations)
             var log = new StringBuilder();
             log.AppendLine("=== BRANCH & BOUND (MILP) over LP RELAXATIONS ===");
             log.AppendLine($"Objective sense        : {(isMax ? "Maximize" : "Minimize")}");
-            log.AppendLine($"Relaxation engine used : {(useRevised ? "Revised Simplex (product form & price-out)" : "Primal Simplex (Tableau)")}");
+            log.AppendLine($"Relaxation engine used : {(useRevised ? "Revised Simplex (Two-Phase)" : "Primal Simplex (Tableau)")}");
             log.AppendLine();
 
-            // DFS stack and Node ID management
             var stack = new Stack<Node>();
             var root = new Node { NodeId = 1, Depth = 0 };
             stack.Push(root);
@@ -103,57 +85,53 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 var node = stack.Pop();
                 explored++;
 
-                // Build node model with bound tightenings
                 var nodeModel = ApplyBounds(CloneModel(rootModel), node.Bounds);
 
                 // Solve LP relaxation
-                SolutionResult lp;
-                if (useRevised)
-                    lp = revised!.Solve(nodeModel);
-                else
-                    lp = tableau!.Solve(nodeModel);
+                SolutionResult lp = useRevised ? revised!.Solve(nodeModel) : tableau!.Solve(nodeModel);
 
-                // --- BEGIN: attach per-node canonical & iterations from chosen engine ---
+                // --- per-node logging (normalized) ---
                 log.AppendLine();
                 log.AppendLine($"--- Subproblem Node #{node.NodeId} (depth={node.Depth}) ---");
                 log.AppendLine($"Bounds: {FormatBounds(node.Bounds)}");
 
                 if (lp != null)
                 {
-                    log.AppendLine($"LP status: {lp.Status}; Obj={lp.ObjectiveValue:0.###}");
-                    if (lp.Info != null && lp.Info.TryGetValue("IterationLog", out var iterObj) &&
-                        iterObj is string lpLog && !string.IsNullOrWhiteSpace(lpLog))
-                    {
-                        // Revised/Tableau log already contains canonical header + iterations
-                        log.AppendLine(lpLog);
-                    }
+                    double raw = lp.ObjectiveValue;
+                    double userZ = isMax ? -raw : raw;
+                    log.AppendLine($"LP status: {lp.Status}; Obj={userZ:0.###} (user-sense){(Math.Abs(userZ - raw) < 1e-12 ? "" : $", Obj(min-form)={raw:0.###}")}");
+
+                    // Prefer a full block if present; otherwise iteration log; normalize final section
+                    string lpBlock = null;
+                    if (lp.Info != null && lp.Info.TryGetValue("CanonicalAndIterations", out var full) && full is string sFull && !string.IsNullOrWhiteSpace(sFull))
+                        lpBlock = sFull;
+                    else if (lp.Info != null && lp.Info.TryGetValue("IterationLog", out var iterObj) && iterObj is string sIter && !string.IsNullOrWhiteSpace(sIter))
+                        lpBlock = sIter;
+                    else if (lp.Info != null && lp.Info.TryGetValue("Log", out var sLogObj) && sLogObj is string sLog && !string.IsNullOrWhiteSpace(sLog))
+                        lpBlock = sLog;
+
+                    if (!string.IsNullOrWhiteSpace(lpBlock))
+                        log.AppendLine(NormalizeLpLogToUserSense(lpBlock, model.ObjectiveType, lp));
                     else
-                    {
                         log.AppendLine("(No iteration log returned from LP relaxation.)");
-                    }
                 }
                 else
                 {
                     log.AppendLine("(LP solver returned null result.)");
                 }
                 log.AppendLine($"--- End Node #{node.NodeId} ---");
-                // --- END: attach per-node canonical & iterations ---
+                // ------------------------------------
 
                 if (lp == null || lp.IsInfeasible)
                 { fathomed++; continue; }
-
                 if (lp.IsUnbounded)
-                {
-                    // Relaxation unbounded: conservatively fathom.
-                    fathomed++;
-                    continue;
-                }
+                { fathomed++; continue; }
                 if (!lp.IsOptimal)
                 { fathomed++; continue; }
 
-                double bound = lp.ObjectiveValue;
+                double bound = lp.ObjectiveValue; // RAW min-form
 
-                // Pruning by bound vs incumbent
+                // Prune by bound (RAW)
                 if (isMax)
                 {
                     if (bound <= incumbentVal + 1e-9)
@@ -161,36 +139,37 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 }
                 else
                 {
-                    // minimization: LP relaxation is a lower bound
                     if (bound >= incumbentVal - 1e-9)
                     { fathomed++; continue; }
                 }
 
                 var x = lp.VariableValues;
 
-                // If LP solution is integral in all integer/binary vars -> update incumbent
+                // Integral?
                 if (IsIntegerFeasible(nodeModel, x))
                 {
                     if ((isMax && bound > incumbentVal + 1e-9) || (!isMax && bound < incumbentVal - 1e-9))
                     {
-                        incumbentVal = bound;
+                        incumbentVal = bound;   // keep RAW
                         incumbentX = MapBackToOriginal(model, nodeModel, x);
-                        log.AppendLine($"[INCUMBENT] value={incumbentVal:0.###} at node #{node.NodeId} with {node.Bounds.Count} bound(s)");
+
+                        double userInc = isMax ? -incumbentVal : incumbentVal;
+                        log.AppendLine($"[INCUMBENT] value={userInc:0.###} (user-sense){(Math.Abs(userInc - incumbentVal) < 1e-12 ? "" : $", min-form={incumbentVal:0.###}")} at node #{node.NodeId} with {node.Bounds.Count} bound(s)");
                     }
                     fathomed++;
                     continue;
                 }
 
-                // Choose branching variable: fractional part closest to 0.5 (tie -> lowest index)
+                // Branch: fractional closest to 0.5
                 int j = SelectBranchVarClosestToHalf(nodeModel, x);
                 if (j < 0)
                 {
-                    // Fallback: treat as integral (numerical noise)
                     if ((isMax && bound > incumbentVal + 1e-9) || (!isMax && bound < incumbentVal - 1e-9))
                     {
                         incumbentVal = bound;
                         incumbentX = MapBackToOriginal(model, nodeModel, x);
-                        log.AppendLine($"[INCUMBENT*] value={incumbentVal:0.###} (fallback integral) at node #{node.NodeId}");
+                        double userInc = isMax ? -incumbentVal : incumbentVal;
+                        log.AppendLine($"[INCUMBENT*] value={userInc:0.###} (user-sense){(Math.Abs(userInc - incumbentVal) < 1e-12 ? "" : $", min-form={incumbentVal:0.###}")} at node #{node.NodeId}");
                     }
                     fathomed++;
                     continue;
@@ -198,12 +177,11 @@ namespace OptiSolver.NET.Services.BranchAndBound
 
                 branched++;
 
-                // Build child nodes
                 var v = nodeModel.Variables[j];
                 double xj = SafeAt(x, j);
+
                 if (v.Type == VariableType.Binary)
                 {
-                    // x_j = 1  and  x_j = 0
                     var child1 = node.Clone();
                     child1.NodeId = ++nextNodeId;
                     child1.Depth = node.Depth + 1;
@@ -215,19 +193,12 @@ namespace OptiSolver.NET.Services.BranchAndBound
                     TightenBinary(child0.Bounds, j, 0);
 
                     if (onesFirst)
-                    {
-                        stack.Push(child0);
-                        stack.Push(child1);
-                    }
+                    { stack.Push(child0); stack.Push(child1); }
                     else
-                    {
-                        stack.Push(child1);
-                        stack.Push(child0);
-                    }
+                    { stack.Push(child1); stack.Push(child0); }
                 }
-                else // general integer
+                else
                 {
-                    // Branch into: x_j <= floor(xj), and x_j >= ceil(xj)
                     int floorVal = (int)Math.Floor(xj);
                     int ceilVal = (int)Math.Ceiling(xj);
 
@@ -241,18 +212,18 @@ namespace OptiSolver.NET.Services.BranchAndBound
                     right.Depth = node.Depth + 1;
                     TightenLower(right.Bounds, j, ceilVal);
 
-                    // Push right then left so the left (<= floor) is processed first (DFS)
                     stack.Push(right);
                     stack.Push(left);
                 }
             }
 
-            // Best candidate summary footer
+            // Footer (user-sense)
             log.AppendLine();
             log.AppendLine("=== BEST CANDIDATE SUMMARY ===");
             if (incumbentX != null)
             {
-                log.AppendLine($"Incumbent objective = {incumbentVal:0.###}");
+                double userInc = isMax ? -incumbentVal : incumbentVal;
+                log.AppendLine($"Incumbent objective = {userInc:0.###}");
                 log.AppendLine($"x* = [ {string.Join(", ", incumbentX.Select(v => v.ToString("0.###")))} ]");
             }
             else
@@ -262,7 +233,7 @@ namespace OptiSolver.NET.Services.BranchAndBound
 
             var res = (incumbentX != null)
                 ? SolutionResult.CreateOptimal(
-                    objectiveValue: incumbentVal,
+                    objectiveValue: incumbentVal, // RAW min-form; writers normalize
                     variableValues: incumbentX,
                     iterations: explored,
                     algorithm: AlgorithmName,
@@ -271,29 +242,56 @@ namespace OptiSolver.NET.Services.BranchAndBound
                   )
                 : SolutionResult.CreateInfeasible(AlgorithmName, "No feasible integer solution found.");
 
+            // Let the writers know the sense + style/engine
+            res.ObjectiveSense = model.ObjectiveType;
+            res.Info["RelaxationEngine"] = useRevised ? "revised" : "tableau";
+            res.Info["Style"] = useRevised
+                ? "Branch & Bound over Revised Simplex relaxations"
+                : "Branch & Bound over Tableau relaxations";
             res.Info["Explored"] = explored;
             res.Info["Fathomed"] = fathomed;
             res.Info["Branched"] = branched;
 
-            // Standardize: expose the composed B&B log (with all subproblem canonical+iterations)
             var composed = log.ToString();
-            res.Info["IterationLog"] = composed; // preferred by OutputWriter
-            res.Info["Log"] = composed;          // kept for compatibility
+            res.Info["CanonicalAndIterations"] = composed; // preferred by OutputWriter
+            // (Optional legacy keys)
+            res.Info["IterationLog"] = composed;
+            res.Info["Log"] = composed;
 
             return res;
+        }
+
+        // ---------- helpers to normalize LP logs ----------
+        private static string NormalizeLpLogToUserSense(string lpLog, ObjectiveType sense, SolutionResult lp)
+        {
+            // Remove any existing "FINAL SOLUTION:" block and re-append a user-sense version
+            if (string.IsNullOrWhiteSpace(lpLog))
+                return lpLog ?? string.Empty;
+
+            var idx = lpLog.IndexOf("FINAL SOLUTION:", StringComparison.OrdinalIgnoreCase);
+            string head = idx >= 0 ? lpLog.Substring(0, idx).TrimEnd() : lpLog.TrimEnd();
+
+            var sb = new StringBuilder();
+            sb.AppendLine(head);
+            sb.AppendLine();
+            sb.AppendLine("FINAL SOLUTION:");
+            double raw = lp.ObjectiveValue;
+            double user = sense == ObjectiveType.Maximize ? -raw : raw;
+            sb.AppendLine($"Objective Value: {user:0,0.###}");
+            sb.AppendLine($"Iterations: {lp.Iterations}");
+            if (lp.VariableValues != null && lp.VariableValues.Length > 0)
+                sb.AppendLine($"Variables: [ {string.Join(", ", lp.VariableValues.Select(v => v.ToString("0.000")))} ]");
+
+            return sb.ToString();
         }
 
         #region Internal helpers
 
         private sealed class Node
         {
-            // List of (varIndex, newLower, newUpper) bound tightenings relative to root model
             public List<(int idx, double? lb, double? ub)> Bounds { get; } = new();
-
-            // For logging clarity
             public int NodeId { get; set; }
             public int Depth { get; set; }
-
             public Node Clone()
             {
                 var n = new Node { NodeId = this.NodeId, Depth = this.Depth };
@@ -302,7 +300,8 @@ namespace OptiSolver.NET.Services.BranchAndBound
             }
         }
 
-        private static double SafeAt(double[] arr, int i) => (arr != null && i >= 0 && i < arr.Length) ? arr[i] : 0.0;
+        private static double SafeAt(double[] arr, int i) =>
+            (arr != null && i >= 0 && i < arr.Length) ? arr[i] : 0.0;
 
         private static string FormatBounds(List<(int idx, double? lb, double? ub)> bounds)
         {
@@ -343,16 +342,11 @@ namespace OptiSolver.NET.Services.BranchAndBound
             return true;
         }
 
-        /// <summary>
-        /// Pick integer/binary var whose fractional part is closest to 0.5.
-        /// Ties broken by lowest index.
-        /// Only considers variables with a strictly fractional value (beyond tolerance).
-        /// </summary>
         private static int SelectBranchVarClosestToHalf(LPModel m, double[] x)
         {
             const double tol = 1e-7;
             int bestIdx = -1;
-            double bestScore = double.NegativeInfinity; // higher is better
+            double bestScore = double.NegativeInfinity;
 
             for (int i = 0; i < m.Variables.Count; i++)
             {
@@ -361,12 +355,11 @@ namespace OptiSolver.NET.Services.BranchAndBound
                     continue;
 
                 double xi = SafeAt(x, i);
-                double frac = Math.Abs(xi - Math.Floor(xi)); // in [0,1)
+                double frac = Math.Abs(xi - Math.Floor(xi)); // [0,1)
                 if (frac < tol || 1.0 - frac < tol)
-                    continue; // effectively integral
+                    continue;
 
-                double score = 0.5 - Math.Abs(xi - 0.5); // larger is closer to 0.5
-
+                double score = 0.5 - Math.Abs(xi - 0.5); // closer to 0.5 is better
                 if (score > bestScore + 1e-15 || (Math.Abs(score - bestScore) <= 1e-15 && (bestIdx == -1 || i < bestIdx)))
                 {
                     bestScore = score;
@@ -421,52 +414,28 @@ namespace OptiSolver.NET.Services.BranchAndBound
                     v.LowerBound = Math.Max(v.LowerBound, lb.Value);
                 if (ub.HasValue)
                     v.UpperBound = Math.Min(v.UpperBound, ub.Value);
-                // If infeasible (lb > ub), relaxation will detect infeasibility during solve.
             }
             return model;
         }
 
         private static LPModel CloneModel(LPModel m)
         {
-            var copy = new LPModel
-            {
-                ObjectiveType = m.ObjectiveType
-            };
-
-            // Variables (preserve original bounds/types/coefficients)
+            var copy = new LPModel { ObjectiveType = m.ObjectiveType };
             foreach (var v in m.Variables)
             {
-                var nv = new Variable(
-                    index: v.Index,
-                    name: v.Name,
-                    coefficient: v.Coefficient,
-                    type: v.Type,
-                    lowerBound: v.LowerBound,
-                    upperBound: v.UpperBound
-                );
+                var nv = new Variable(v.Index, v.Name, v.Coefficient, v.Type, v.LowerBound, v.UpperBound);
                 copy.Variables.Add(nv);
             }
-
-            // Constraints
             foreach (var c in m.Constraints)
             {
-                var nc = new Constraint
-                {
-                    Relation = c.Relation,
-                    RightHandSide = c.RightHandSide
-                };
+                var nc = new Constraint { Relation = c.Relation, RightHandSide = c.RightHandSide };
                 foreach (var coef in c.Coefficients)
                     nc.Coefficients.Add(coef);
                 copy.Constraints.Add(nc);
             }
-
             return copy;
         }
 
-        /// <summary>
-        /// Map node-model solution (same variable order) back to original model space.
-        /// (Currently aligned 1:1; kept for symmetry/future transformations.)
-        /// </summary>
         private static double[] MapBackToOriginal(LPModel original, LPModel nodeModel, double[] xNode)
         {
             int n = original.Variables.Count;
