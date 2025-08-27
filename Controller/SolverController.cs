@@ -1,12 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using OptiSolver.NET.Core;
+﻿using OptiSolver.NET.Core;
+using OptiSolver.NET.Exceptions;
 using OptiSolver.NET.IO;
 using OptiSolver.NET.Services.Base;
-using OptiSolver.NET.Services.Simplex;
 using OptiSolver.NET.Services.BranchAndBound;
-using OptiSolver.NET.Exceptions;
+using OptiSolver.NET.Services.CuttingPlane;
 using OptiSolver.NET.Services.Nonlinear;
+using OptiSolver.NET.Services.Simplex;
+using System;
+using System.Collections.Generic;
 
 namespace OptiSolver.NET.Controller
 {
@@ -147,6 +148,10 @@ namespace OptiSolver.NET.Controller
                     var bb = new BranchBoundILPSolver();
                     return bb.CanSolve(model) ? bb : null;   
                 }
+
+                case "cutting":
+                case "gomory":
+                return new CuttingPlaneSolver();
 
                 case "nonlinear":
                 case "nonlinear-demo":

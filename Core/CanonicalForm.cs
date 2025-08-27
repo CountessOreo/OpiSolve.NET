@@ -67,12 +67,55 @@ namespace OptiSolver.NET.Core
             set => OriginalVariables = value;
         }
 
+        // === NEW: Column metadata for every canonical variable (decision/slack/surplus/artificial) ===
+        // Filled by ModelCanonicalTransformer; B&B and simplex can query this to map columns back to originals.
+        public List<VarInfo> Columns { get; set; } = new List<VarInfo>();
+
         public CanonicalForm()
         {
             ArtificialVariableIndices = new List<int>();
             RequiresPhaseI = false;
         }
 
+        // === NEW: Safe helpers for B&B / simplex ===
+
+        /// <summary>
+        /// Returns VarInfo for a column or null if out of range/not populated.
+        /// </summary>
+        public VarInfo GetVarInfo(int col)
+        {
+            if (Columns == null)
+                return null;
+            if (col < 0 || col >= Columns.Count)
+                return null;
+            return Columns[col];
+        }
+
+        /// <summary>
+        /// True if this column is a decision variable (original model variable, possibly split/substituted).
+        /// </summary>
+        public bool IsDecisionColumn(int col) =>
+            GetVarInfo(col)?.Kind == VarKind.Decision;
+
+        /// <summary>
+        /// Returns the original variable index for this column, or -1 if not a decision column.
+        /// </summary>
+        public int GetOriginalIndex(int col)
+        {
+            var info = GetVarInfo(col);
+            return (info?.Kind == VarKind.Decision && info.OriginalIndex.HasValue) ? info.OriginalIndex.Value : -1;
+        }
+
+        /// <summary>
+        /// Human-friendly column name (falls back to VariableMapping if VarInfo.Name absent).
+        /// </summary>
+        public string GetColumnName(int col)
+        {
+            var info = GetVarInfo(col);
+            if (!string.IsNullOrWhiteSpace(info?.Name))
+                return info.Name;
+            return VariableMapping?.GetCanonicalVariableName(col) ?? $"x{col + 1}";
+        }
 
         /// <summary>
         /// Gets constraint as string for display
@@ -172,7 +215,10 @@ namespace OptiSolver.NET.Core
                 TotalVariables = TotalVariables,
                 OriginalVariables = OriginalVariables,
                 RequiresPhaseI = false, // Phase I doesn't need another Phase I
-                ArtificialVariableIndices = new List<int>(ArtificialVariableIndices)
+                ArtificialVariableIndices = new List<int>(ArtificialVariableIndices),
+
+                // === NEW: carry column metadata to Phase I model too ===
+                Columns = new List<VarInfo>(Columns ?? Enumerable.Empty<VarInfo>())
             };
 
             // Phase I objective: minimize sum of artificial variables
@@ -260,6 +306,10 @@ namespace OptiSolver.NET.Core
 
             if (VariableTypes == null || VariableTypes.Length != TotalVariables)
                 errors.Add($"Variable types length {VariableTypes?.Length ?? 0} doesn't match total variables {TotalVariables}");
+
+            // === NEW: Columns metadata sanity ===
+            if (Columns == null || Columns.Count != TotalVariables)
+                errors.Add($"Columns (VarInfo) count {Columns?.Count ?? 0} doesn't match total variables {TotalVariables}");
 
             // RHS non-negative and finite
             for (int i = 0; i < (RightHandSide?.Length ?? 0); i++)
@@ -367,6 +417,5 @@ namespace OptiSolver.NET.Core
                 && VariableMapping.AuxiliaryVariables.TryGetValue(canonicalIndex, out var aux)
                 && aux.Type == AuxiliaryVariableType.Surplus;
         }
-
     }
 }

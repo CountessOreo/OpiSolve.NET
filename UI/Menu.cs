@@ -46,7 +46,7 @@ namespace OptiSolver.NET.UI
                     Console.WriteLine("  2) Revised Simplex (Two-Phase)   [default]");
                     Console.WriteLine("  3) Branch & Bound 0-1 Knapsack   (single ≤ constraint + binary)");
                     Console.WriteLine("  4) Branch & Bound (Simplex, Mixed/Pure Integer)");
-                    Console.WriteLine("  5) Cutting Plane (Gomory)        [not available yet]");
+                    Console.WriteLine("  5) Cutting Plane (Gomory)");
                     Console.WriteLine("  6) Nonlinear 1D Demo (f(x)=...)  [bonus]");
                     Console.Write("Selection [1-6 or ?]: ");
                     var choice = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
@@ -59,18 +59,12 @@ namespace OptiSolver.NET.UI
                         continue; // re-prompt selection
                     }
 
-                    // Only option 5 is blocked
-                    if (choice == "5")
-                    {
-                        Console.WriteLine("Selected solver is not available yet. Please choose another.\n");
-                        continue; // re-prompt
-                    }
-
                     solverKey = choice switch
                     {
                         "1" => "tableau",
                         "3" => "knapsack",
                         "4" => "bb-ilp",
+                        "5" => "cutting",
                         "6" => "nonlinear-demo",
                         _ => "revised",
                     };
@@ -111,6 +105,16 @@ namespace OptiSolver.NET.UI
                     Console.Write("B&B TimeLimit seconds (blank=60): ");
                     if (double.TryParse(Console.ReadLine(), out double tl))
                         options["TimeLimit"] = tl;
+                }
+
+                if (solverKey == "cutting")
+                {
+                    Console.Write("MaxCuts (blank=50): ");
+                    if (int.TryParse(Console.ReadLine(), out var mc))
+                        options["MaxCuts"] = mc;
+                    Console.Write("Tolerance (blank=1e-9): ");
+                    if (double.TryParse(Console.ReadLine(), out var tol))
+                        options["Tolerance"] = tol;
                 }
 
                 // Nonlinear demo: collect function & bounds
@@ -176,6 +180,18 @@ namespace OptiSolver.NET.UI
                     }
 
                     result = controller.SolveModel(model, solverKey, options);
+
+                    // ======== OBJ-NORMALIZE for display & files ========
+                    // Many solvers minimize -Z for Max problems; flip sign back once for human-facing outputs.
+                    if (model.ObjectiveType == ObjectiveType.Maximize && !double.IsNaN(result.ObjectiveValue))
+                    {
+                        result.ObjectiveValue = -result.ObjectiveValue;
+                    }
+                    // Keep the sense available downstream (optional)
+                    result.ObjectiveSense = model.ObjectiveType;
+                    result.Info["ObjectiveSense"] = model.ObjectiveType;
+                    // ==================================================
+
                 }
                 catch (Exception ex)
                 {

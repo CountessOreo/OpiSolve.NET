@@ -7,9 +7,13 @@ namespace OptiSolver.NET.Core
     /// <summary>
     /// Converts LPModel to CanonicalForm for simplex algorithms.
     /// Handles variable splitting, auxiliary variable addition, and constraint standardization.
+    /// Also populates per-column VarInfo metadata (Decision/Slack/Surplus/Artificial).
     /// </summary>
     public class ModelCanonicalTransformer
     {
+        // ---- NEW: we accumulate VarInfo for every canonical column as we build them ----
+        private List<VarInfo> _varInfos;   
+
         /// <summary>
         /// Converts an LPModel to canonical form.
         /// </summary>
@@ -21,6 +25,8 @@ namespace OptiSolver.NET.Core
             // Validate the original model first
             model.ValidateModel();
 
+            _varInfos = new List<VarInfo>(); 
+
             var canonical = new CanonicalForm
             {
                 ModelName = model.Name,
@@ -30,7 +36,7 @@ namespace OptiSolver.NET.Core
             };
 
             // 1) Variable mapping (URS split, Negative substitution, etc.)
-            var mapping = CreateVariableMapping(model);
+            var mapping = CreateVariableMapping(model, canonicalVarInfoSink: _varInfos);
             canonical.VariableMapping = mapping;
             canonical.TotalVariables = mapping.TotalCanonicalVariables;
 
@@ -38,7 +44,7 @@ namespace OptiSolver.NET.Core
             var processed = ProcessConstraintsToNonNegativeRhs(model);
 
             // 3) Add auxiliary variables per row (Slack for <= ; Surplus + Artificial for >= ; Artificial for =)
-            AddAuxiliaries(canonical, processed, mapping);
+            AddAuxiliaries(canonical, processed, mapping, canonicalVarInfoSink: _varInfos);
 
             // 4) Build A matrix and b
             BuildConstraintMatrix(canonical, processed, mapping);
@@ -52,12 +58,18 @@ namespace OptiSolver.NET.Core
             // 7) Phase I flag
             SetupPhaseI(canonical);
 
+            // ---- NEW: attach column metadata to CanonicalForm so solvers (and B&B) can query it ----
+            // If your CanonicalForm uses a different property name, change "Columns" below.
+            canonical.Columns = _varInfos;
+
             // Final validation
             canonical.Validate();
             return canonical;
         }
 
-        private VariableMapping CreateVariableMapping(LPModel model)
+        // ------------------- helpers -------------------
+
+        private VariableMapping CreateVariableMapping(LPModel model, List<VarInfo> canonicalVarInfoSink)
         {
             var mapping = new VariableMapping(model.VariableCount);
             int canonicalIndex = 0;
@@ -71,18 +83,31 @@ namespace OptiSolver.NET.Core
                     case VariableType.Unrestricted:
                     // x = x+ - x-, both >= 0
                     mapping.AddUnrestrictedVariableMapping(i, v.Name, canonicalIndex, canonicalIndex + 1);
+
+                    // NEW: add VarInfo for x+ and x- (both map back to original i; they are still "Decision" columns)
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Decision, OriginalIndex = i, Name = $"{v.Name}_plus" });   // col canonicalIndex
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Decision, OriginalIndex = i, Name = $"{v.Name}_minus" });   // col canonicalIndex+1
+
                     canonicalIndex += 2;
                     break;
 
                     case VariableType.Negative:
                     // x <= 0  ->  x = -y, y >= 0
                     mapping.AddNegativeVariableMapping(i, v.Name, canonicalIndex);
+
+                    // NEW: y is still a "Decision" column representing original i
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Decision, OriginalIndex = i, Name = $"{v.Name}_negsub" });
+
                     canonicalIndex += 1;
                     break;
 
                     default:
                     // Positive / Continuous / Integer / Binary (>= 0)
                     mapping.AddRegularVariableMapping(i, v.Name, canonicalIndex);
+
+                    // NEW: regular canonical decision column mapped to original i
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Decision, OriginalIndex = i, Name = v.Name });
+
                     canonicalIndex += 1;
                     break;
                 }
@@ -143,8 +168,9 @@ namespace OptiSolver.NET.Core
 
         /// <summary>
         /// Adds Slack / Surplus / Artificial variables by row and updates TotalVariables and mapping.
+        /// Also appends VarInfo for each auxiliary column.
         /// </summary>
-        private void AddAuxiliaries(CanonicalForm canonical, List<ProcessedConstraint> rows, VariableMapping mapping)
+        private void AddAuxiliaries(CanonicalForm canonical, List<ProcessedConstraint> rows, VariableMapping mapping, List<VarInfo> canonicalVarInfoSink)
         {
             int next = canonical.TotalVariables;
 
@@ -156,16 +182,20 @@ namespace OptiSolver.NET.Core
                 {
                     // +s_i
                     mapping.AddAuxiliaryVariable(next, AuxiliaryVariableType.Slack, i, $"s{i + 1}");
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Slack, OriginalIndex = null, Name = $"s{i + 1}" });
                     next++;
                 }
                 else if (r.Relation == ConstraintRelation.GreaterThanOrEqual)
                 {
                     // -e_i + a_i
                     mapping.AddAuxiliaryVariable(next, AuxiliaryVariableType.Surplus, i, $"e{i + 1}");
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Surplus, OriginalIndex = null, Name = $"e{i + 1}" });
                     next++;
+
                     mapping.AddAuxiliaryVariable(next, AuxiliaryVariableType.Artificial, i, $"a{i + 1}");
                     canonical.ArtificialVariableIndices.Add(next);
                     canonical.RequiresPhaseI = true;
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Artificial, OriginalIndex = null, Name = $"a{i + 1}" });
                     next++;
                 }
                 else // Equal
@@ -174,6 +204,7 @@ namespace OptiSolver.NET.Core
                     mapping.AddAuxiliaryVariable(next, AuxiliaryVariableType.Artificial, i, $"a{i + 1}");
                     canonical.ArtificialVariableIndices.Add(next);
                     canonical.RequiresPhaseI = true;
+                    canonicalVarInfoSink.Add(new VarInfo { Kind = VarKind.Artificial, OriginalIndex = null, Name = $"a{i + 1}" });
                     next++;
                 }
             }
@@ -228,7 +259,6 @@ namespace OptiSolver.NET.Core
             return -1;
         }
 
-
         private void BuildObjectiveFunction(CanonicalForm canonical, LPModel model, VariableMapping mapping)
         {
             int n = canonical.TotalVariables;
@@ -263,9 +293,10 @@ namespace OptiSolver.NET.Core
                 if (!mapping.CanonicalToOriginal.TryGetValue(j, out var info))
                 {
                     // Defensive defaults for structural variable with no mapping (should be rare)
-                    canonical.VariableTypes[j] = VariableType.Positive;   
+                    canonical.VariableTypes[j] = VariableType.Positive;
                     canonical.LowerBounds[j] = 0.0;
                     canonical.UpperBounds[j] = double.PositiveInfinity;
+                    continue; // <-- add continue so we don't fall through to use 'info'
                 }
 
                 var origIdx = info.OriginalIndex;
@@ -291,7 +322,7 @@ namespace OptiSolver.NET.Core
             {
                 canonical.LowerBounds[j] = 0.0;
                 canonical.UpperBounds[j] = double.PositiveInfinity;
-                canonical.VariableTypes[j] = VariableType.Positive;  
+                canonical.VariableTypes[j] = VariableType.Positive;
             }
         }
 
