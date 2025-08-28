@@ -130,8 +130,10 @@ namespace OptiSolver.NET.Services.Simplex
                     result.HasAlternateOptima = phaseII.HasAlternateOptima;
                     result.Info["BasisIndices"] = _Bidx.ToArray();                   // int[]
                     result.Info["BInv"] = _BInv;                                    // double[,]
-                    result.Info["DualY"] = ComputeDual(cPhaseII, _Bidx, _BInv);     // double[]
-                    result.Info["IterationLog"] = _log.ToString();                   // string
+                    var yDual = ComputeDual(cPhaseII, _Bidx, _BInv);
+                    result.Info["DualY"] = yDual;
+                    result.DualValues = (double[])yDual.Clone();     
+                    result.Info["IterationLog"] = _log.ToString();
                     return result;
                 }
                 catch (InvalidOperationException ex) when (ex.Message.StartsWith("Unbounded"))

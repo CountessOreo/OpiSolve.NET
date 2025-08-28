@@ -6,7 +6,7 @@ Style     : Branch & Bound over Tableau relaxations
 Relaxation: Primal Simplex (Tableau)
 Objective : 13,000
 Iterations: 1
-SolveTime : 35,609 ms
+SolveTime : 34,914 ms
 
 x*        : [ 2,000, 0,000, 1,000 ]
 

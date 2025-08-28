@@ -23,8 +23,7 @@ Use: SensitivityAnalyser.ApplyRhsChange(...) / ApplyCostChange(...) / EvaluateNe
 === Duality Check (Continuous Relaxation) ===
 Primal status: Optimal
 Primal z* (user-sense): 13,000
-Dual variables not returned by primal; solved explicit dual instead.
-Dual status: Optimal
-Dual z* (user-sense, b·y): 0,000
-Strong Duality: NO (|z_P - z_D|=13,000000)
+Dual variables (π): [ 2,000, 1,000 ]
+Dual z* (b·π): 13,000
+Strong Duality: YES (|z_P - z_D|=0,000000)
 

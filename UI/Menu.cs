@@ -43,12 +43,12 @@ namespace OptiSolver.NET.UI
                 {
                     Console.WriteLine();
                     Console.WriteLine("Choose solver:");
-                    Console.WriteLine("  1) Primal Simplex (Tableau)");
-                    Console.WriteLine("  2) Revised Simplex (Two-Phase)   [default]");
-                    Console.WriteLine("  3) Branch & Bound 0-1 Knapsack   (single ≤ constraint + binary)");
+                    Console.WriteLine("  1) Primal Simplex ");
+                    Console.WriteLine("  2) Revised Simplex (Two-Phase) ");
+                    Console.WriteLine("  3) Branch & Bound 0-1 Knapsack ");
                     Console.WriteLine("  4) Branch & Bound (Simplex, Mixed/Pure Integer)");
                     Console.WriteLine("  5) Cutting Plane (Gomory)");
-                    Console.WriteLine("  6) Nonlinear 1D Demo (f(x)=...)  [bonus]");
+                    Console.WriteLine("  6) Nonlinear ");
                     Console.Write("Selection [1-6 or ?]: ");
                     var choice = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
 

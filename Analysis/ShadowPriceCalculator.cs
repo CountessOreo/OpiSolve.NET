@@ -1,40 +1,95 @@
 ﻿using System;
-using System.Linq;
 using OptiSolver.NET.Services.Base;
 
 namespace OptiSolver.NET.Analysis
 {
     /// <summary>
-    /// Shadow prices (dual π). Prefer y = c_B^T B^{-1} from Revised Simplex (Info["DualY"]).
-    /// Fallback: approximate from final tableau if solver supplied it.
+    /// Utilities to obtain shadow prices π (dual variables y) from solver artifacts.
+    /// Prefers solver-provided duals; falls back to y^T = c_B^T B^{-1} when available.
+    /// Works for both Revised Simplex and Primal Simplex (tableau) results.
     /// </summary>
     public static class ShadowPriceCalculator
     {
-        public static double[] FromRevisedArtifacts(SolutionResult r)
+        /// <summary>
+        /// Try to read duals directly from a solver result, regardless of engine.
+        /// Order corresponds to primal constraints.
+        /// </summary>
+        public static double[] FromResult(SolutionResult r)
         {
-            if (r?.Info != null && r.Info.TryGetValue("DualY", out var yObj) && yObj is double[] y)
+            if (r == null)
+                return null;
+
+            // 1) Direct property populated by some solvers
+            if (r.DualValues != null && r.DualValues.Length > 0)
+                return (double[])r.DualValues.Clone();
+
+            // 2) Revised simplex stores y^T in Info["DualY"]
+            if (r.Info != null && r.Info.TryGetValue("DualY", out var yObj) && yObj is double[] y)
                 return (double[])y.Clone();
+
+            // 3) Both tableau/revised may export CBasis and BInv → y^T = c_B^T B^{-1}
+            if (r.Info != null
+                && r.Info.TryGetValue("CBasis", out var cBObj) && cBObj is double[] cB
+                && r.Info.TryGetValue("BInv", out var bInvObj) && bInvObj is double[,] BInv)
+            {
+                return MultiplyRowByMatrix(cB, BInv);
+            }
+
+            // 4) Some tableau implementations stash duals in Info["DualValues"]
+            if (r.Info != null && r.Info.TryGetValue("DualValues", out var dObj) && dObj is double[] dy)
+                return (double[])dy.Clone();
+
             return null;
         }
 
-        public static double[] TryFromTableau(SolutionResult r)
+        /// <summary>
+        /// Legacy helper for callers expecting “revised artifacts only”.
+        /// </summary>
+        public static double[] FromRevisedArtifacts(SolutionResult r)
         {
-            // If final tableau is present, we can attempt to recover dual row.
-            // Convention in PrimalSimplexTableauSolver: row 0 holds reduced-cost/objective row.
-            if (r?.Info == null)
-                return null;
-            if (!r.Info.TryGetValue("FinalTableau", out var Tobj))
-                return null;
-            if (Tobj is not double[,] T)
+            if (r == null)
                 return null;
 
-            // Heuristic: we can’t reliably parse basis mapping without BasisIndices,
-            // so return null unless we also have BasisIndices and the mapping is simple.
-            if (!r.Info.TryGetValue("BasisIndices", out var bObj) || bObj is not int[] Bidx)
-                return null;
+            if (r.Info != null && r.Info.TryGetValue("DualY", out var yObj) && yObj is double[] y)
+                return (double[])y.Clone();
 
-            // Without the original A split, deriving π precisely is brittle. Return null to avoid misleading values.
+            if (r.Info != null
+                && r.Info.TryGetValue("CBasis", out var cBObj) && cBObj is double[] cB
+                && r.Info.TryGetValue("BInv", out var bInvObj) && bInvObj is double[,] BInv)
+            {
+                return MultiplyRowByMatrix(cB, BInv);
+            }
+
             return null;
+        }
+
+        /// <summary>
+        /// Legacy helper used when a Primal Simplex (tableau) run produced an optimal basis.
+        /// Now simply defers to FromResult(), which knows how to harvest duals from common fields.
+        /// </summary>
+        public static double[] TryFromTableau(SolutionResult r) => FromResult(r);
+
+        // --------- small numeric helper ---------
+        private static double[] MultiplyRowByMatrix(double[] row, double[,] mat)
+        {
+            int rlen = row?.Length ?? 0;
+            if (rlen == 0 || mat == null)
+                return null;
+
+            int m = mat.GetLength(0);
+            int n = mat.GetLength(1);
+            if (rlen != m) // row must match BInv rows
+                return null;
+
+            var res = new double[n];
+            for (int j = 0; j < n; j++)
+            {
+                double s = 0.0;
+                for (int i = 0; i < m; i++)
+                    s += row[i] * mat[i, j];
+                res[j] = s;
+            }
+            return res;
         }
     }
 }

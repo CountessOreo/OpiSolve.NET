@@ -14,50 +14,73 @@ namespace OptiSolver.NET.Analysis
     {
         public static List<SensitivityRange> CostRangesForNonBasic(LPModel model, SolutionResult result)
         {
-            // For a non-basic j with x_j = 0 at optimality:
-            // Maximize: reduced cost r_j = c_j - y^T A_j <= 0.
-            // Allowable INCREASE Δ: keep r_j + Δ <= 0 -> Δ_max = -r_j.
-            // Allowable DECREASE often unbounded (until another nonbasic ties; we return +∞).
             var ranges = new List<SensitivityRange>();
-            if (result?.Info == null)
+            if (model == null || result == null)
                 return ranges;
 
-            if (!result.Info.TryGetValue("ReducedCosts", out var rObj) || rObj is not double[] rc)
-                rc = result.ReducedCosts;
-
-            var canon = new ModelCanonicalTransformer().Canonicalize(model);
-            var (_, Bidx, _, A, c, b, maximize) = Extract(model, result);
-            if (Bidx == null || rc == null)
-                return ranges;
-
-            var basicSet = new HashSet<int>(Bidx);
-            for (int j = 0; j < rc.Length; j++)
+            // ---- Reduced costs (prefer solver; else compute from duals π) ----
+            double[] rc = result.ReducedCosts;
+            if (rc == null || rc.Length != model.Variables.Count)
             {
-                if (basicSet.Contains(j))
-                    continue; // skip basics
-                var rj = rc[j];
+                var pi = ShadowPriceCalculator.FromResult(result); // Duals from solver artifacts
+                if (pi != null && pi.Length == model.Constraints.Count)
+                {
+                    rc = new double[model.Variables.Count];
+                    for (int j = 0; j < model.Variables.Count; j++)
+                    {
+                        double At_pi = 0.0;
+                        for (int i = 0; i < model.Constraints.Count; i++)
+                            At_pi += model.Constraints[i].Coefficients[j] * pi[i];
+
+                        // User-sense convention
+                        rc[j] = (model.ObjectiveType == ObjectiveType.Maximize)
+                            ? (model.Variables[j].Coefficient - At_pi) // r_j <= 0 at optimum
+                            : (At_pi - model.Variables[j].Coefficient); // r_j >= 0 at optimum
+                    }
+                }
+            }
+            if (rc == null)
+                return ranges; // nothing we can do without rc
+
+            // ---- Identify basic ORIGINAL variables (map canonical basis to original indices) ----
+            var basicOriginal = GetBasicOriginalSet(model, result); // may be null if no basis info
+            bool maximize = (model.ObjectiveType == ObjectiveType.Maximize);
+
+            for (int j = 0; j < model.Variables.Count; j++)
+            {
+                // Only non-basics
+                if (basicOriginal != null && basicOriginal.Contains(j))
+                    continue;
+
+                double rj = rc[j];
+                double cj = model.Variables[j].Coefficient;
+
                 var sr = new SensitivityRange { VarIndex = j, ReducedCost = rj, IsBasic = false };
 
                 if (maximize)
                 {
-                    // increase limited by -rj, decrease unbounded
+                    // Max: r_j = c_j - (A^T π)_j <= 0.
+                    // Allowable increase Δ so that r_j + Δ <= 0  ⇒ Δ_max = -r_j (≥0); decrease unbounded.
                     double inc = Math.Max(0.0, -rj);
                     sr.Min = double.NegativeInfinity;
-                    sr.Max = c[j] + inc;
-                    sr.MaxIncrease = inc;
+                    sr.Max = double.IsInfinity(inc) ? double.PositiveInfinity : cj + inc;
+                    sr.MaxIncrease = double.IsInfinity(inc) ? double.PositiveInfinity : inc;
                     sr.MaxDecrease = double.PositiveInfinity;
                 }
                 else
                 {
-                    // minimize: r_j >= 0 at optimum; Δ_min = -rj (allowed decrease), increase often unbounded
+                    // Min: r_j = (A^T π)_j - c_j >= 0.
+                    // Allowable decrease Δ so that r_j - Δ >= 0  ⇒ Δ_min = -r_j (≤0) → magnitude r_j; increase unbounded.
                     double dec = Math.Max(0.0, rj);
-                    sr.Min = c[j] - dec;
+                    sr.Min = double.IsInfinity(dec) ? double.NegativeInfinity : cj - dec;
                     sr.Max = double.PositiveInfinity;
                     sr.MaxIncrease = double.PositiveInfinity;
-                    sr.MaxDecrease = dec;
+                    sr.MaxDecrease = double.IsInfinity(dec) ? double.PositiveInfinity : dec;
                 }
+
                 ranges.Add(sr);
             }
+
             return ranges;
         }
 
@@ -217,6 +240,23 @@ namespace OptiSolver.NET.Analysis
                 for (int j = 0; j < c; j++)
                     res[i] += M[i, j] * v[j];
             return res;
+        }
+
+        private static HashSet<int> GetBasicOriginalSet(LPModel model, SolutionResult result)
+        {
+            if (result?.Info == null)
+                return null;
+            if (!result.Info.TryGetValue("BasisIndices", out var bObj) || bObj is not int[] Bidx)
+                return null;
+
+            var canon = new ModelCanonicalTransformer().Canonicalize(model);
+            var set = new HashSet<int>();
+            foreach (var jB in Bidx)
+            {
+                if (canon.VariableMapping.CanonicalToOriginal.TryGetValue(jB, out var origInfo))
+                    set.Add(origInfo.OriginalIndex);
+            }
+            return set;
         }
     }
 

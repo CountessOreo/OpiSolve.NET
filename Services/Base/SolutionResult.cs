@@ -1,7 +1,8 @@
 ﻿using OptiSolver.NET.Core;
+using OptiSolver.NET.UI;
 using System;
-using System.Linq;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace OptiSolver.NET.Services.Base
 {
@@ -13,7 +14,7 @@ namespace OptiSolver.NET.Services.Base
         // Overall status of the solve
         public SolutionStatus Status { get; set; } = SolutionStatus.NotSolved;
 
-        // Optimal objective value (normalized for display if caller chose to do so)
+        // Raw solver objective value (typically min-form internally)
         public double ObjectiveValue { get; set; }
 
         // Variable values solution
@@ -46,17 +47,52 @@ namespace OptiSolver.NET.Services.Base
         public bool HasAlternateOptima { get; set; }
 
         /// <summary>
-        /// Sense of the original model (used by some UIs; optional).
-        /// Note: In Menu.cs we normalize ObjectiveValue already; still useful for reporting.
+        /// Sense of the original model (used by display and reporting).
+        /// Menu/solvers should stamp this; we also honor Info["ObjectiveSense"] as a fallback.
         /// </summary>
         public ObjectiveType ObjectiveSense { get; set; } = ObjectiveType.Minimize;
 
-        // Convenience checks
+        // ---------- Convenience flags ----------
         public bool IsOptimal => Status == SolutionStatus.Optimal;
         public bool IsInfeasible => Status == SolutionStatus.Infeasible;
         public bool IsUnbounded => Status == SolutionStatus.Unbounded;
-        public bool IsFeasible => Status == SolutionStatus.Optimal;
+        public bool IsFeasible => Status == SolutionStatus.Optimal; // kept as in your original
         public bool HasAlternative => Status == SolutionStatus.AlternativeOptimal;
+
+        // ---------- Display helpers ----------
+        private ObjectiveType ResolveSense()
+        {
+            var sense = ObjectiveSense;
+
+            // Allow override from Info["ObjectiveSense"] (enum or string)
+            if (Info != null && Info.TryGetValue("ObjectiveSense", out var sObj))
+            {
+                if (sObj is ObjectiveType sEnum)
+                    sense = sEnum;
+                else if (sObj is string sStr && Enum.TryParse<ObjectiveType>(sStr, true, out var sParsed))
+                    sense = sParsed;
+            }
+
+            return sense;
+        }
+
+        /// <summary>
+        /// User-facing objective value (flip raw min-form to user sense).
+        /// </summary>
+        public double GetDisplayObjective()
+        {
+            if (double.IsNaN(ObjectiveValue))
+                return double.NaN;
+
+            var sense = ResolveSense();
+            return sense == ObjectiveType.Maximize ? -ObjectiveValue : ObjectiveValue;
+        }
+
+        /// <summary>
+        /// Convenience for formatted printing in one call.
+        /// </summary>
+        public string GetDisplayObjectiveRounded() =>
+            double.IsNaN(ObjectiveValue) ? "NaN" : DisplayHelper.Round3(GetDisplayObjective());
 
         public override string ToString()
         {
@@ -64,12 +100,12 @@ namespace OptiSolver.NET.Services.Base
             if (!string.IsNullOrWhiteSpace(Message))
                 sb += $"Message: {Message}\n";
 
-            if (IsOptimal)
+            if (IsOptimal || HasAlternative)
             {
-                sb += $"Objective: {ObjectiveValue:F6}\n";
+                sb += $"Objective: {GetDisplayObjective():F6}\n";
                 if (VariableValues != null)
                     sb += $"x*: [{string.Join(", ", VariableValues.Select(v => v.ToString("F6")))}]\n";
-                if (HasAlternateOptima)
+                if (HasAlternateOptima || HasAlternative)
                     sb += "Note: Alternate optimal solutions exist.\n";
             }
 
@@ -78,13 +114,7 @@ namespace OptiSolver.NET.Services.Base
             return sb;
         }
 
-        /// <summary>
-        /// Returns the objective as modeled (if caller kept raw solver sign and wants a display-only flip).
-        /// If you've already normalized ObjectiveValue (as in Menu.cs), you don't need this.
-        /// </summary>
-        public double GetDisplayObjective()
-            => ObjectiveSense == ObjectiveType.Maximize ? -ObjectiveValue : ObjectiveValue;
-
+        // ---------- Factory helpers ----------
         public static SolutionResult CreateOptimal(
             double objectiveValue,
             double[] variableValues,

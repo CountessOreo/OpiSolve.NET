@@ -69,9 +69,16 @@ namespace OptiSolver.NET.Services.CuttingPlane
             // Validate
             var valid = ValidateModel(model);
             if (valid != null)
+            {
+                valid.ObjectiveSense = model?.ObjectiveType ?? ObjectiveType.Minimize;
                 return valid;
+            }
             if (!CanSolve(model))
-                return SolutionResult.CreateError(AlgorithmName, "Cutting-plane requires a pure integer/binary model with x >= 0.");
+            {
+                var err = SolutionResult.CreateError(AlgorithmName, "Cutting-plane requires a pure integer/binary model with x >= 0.");
+                err.ObjectiveSense = model.ObjectiveType;
+                return err;
+            }
 
             // Working model (we will append cuts to this copy)
             var working = CloneModel(model);
@@ -108,18 +115,25 @@ namespace OptiSolver.NET.Services.CuttingPlane
                     }
 
                     if (lastLp == null)
-                        return SolutionResult.CreateError(AlgorithmName, "LP relaxation returned null result.");
+                    {
+                        var err = SolutionResult.CreateError(AlgorithmName, "LP relaxation returned null result.");
+                        err.ObjectiveSense = model.ObjectiveType;
+                        err.Info["IterationLog"] = log.ToString();
+                        return err;
+                    }
 
                     // Handle infeasible/unbounded before cut generation
                     if (lastLp.IsInfeasible)
                     {
                         var infeas = SolutionResult.CreateInfeasible(AlgorithmName, "LP relaxation infeasible (cannot proceed with cuts).");
+                        infeas.ObjectiveSense = model.ObjectiveType;
                         infeas.Info["IterationLog"] = log.ToString();
                         return infeas;
                     }
                     if (lastLp.IsUnbounded)
                     {
                         var unb = SolutionResult.CreateUnbounded(AlgorithmName, "LP relaxation unbounded (cannot proceed with cuts).");
+                        unb.ObjectiveSense = model.ObjectiveType;
                         unb.Info["IterationLog"] = log.ToString();
                         return unb;
                     }
@@ -146,19 +160,32 @@ namespace OptiSolver.NET.Services.CuttingPlane
 
                     if (allInt)
                     {
-                        // We reached an integer optimal solution
+                        // Revised Simplex reports user-sense z; store min-form internally for consistent display flipping.
+                        double rawMinForm = (model.ObjectiveType == ObjectiveType.Maximize)
+                            ? -lastLp.ObjectiveValue
+                            : lastLp.ObjectiveValue;
+
                         var done = SolutionResult.CreateOptimal(
-                            objectiveValue: lastLp.ObjectiveValue,
+                            objectiveValue: rawMinForm,
                             variableValues: x,
                             iterations: rounds,
                             algorithm: AlgorithmName,
+                            solveTimeMs: (DateTime.UtcNow - started).TotalMilliseconds,
                             message: "Integer optimum found via cutting planes.");
 
                         // Carry over last artifacts and composed log
                         if (lastLp.Info != null)
                             foreach (var kv in lastLp.Info)
                                 done.Info[kv.Key] = kv.Value;
+
+                        done.Info["Style"] = "Gomory fractional cuts over LP relaxations";
+                        done.Info["CutsAdded"] = cuts;
                         done.Info["IterationLog"] = log.ToString();
+
+                        // *** Key line for correct display in user-sense (e.g., +2 instead of -2) ***
+                        done.ObjectiveSense = model.ObjectiveType;
+                        done.Info["ObjectiveSense"] = model.ObjectiveType;
+
                         return done;
                     }
 
@@ -170,6 +197,7 @@ namespace OptiSolver.NET.Services.CuttingPlane
                     {
                         // Revised should export these; if not available, we cannot form cuts safely.
                         var err = SolutionResult.CreateError(AlgorithmName, "Missing basis/BInv artifacts from LP relaxation (required for Gomory cut).");
+                        err.ObjectiveSense = model.ObjectiveType;
                         err.Info["IterationLog"] = log.ToString();
                         return err;
                     }
@@ -257,28 +285,43 @@ namespace OptiSolver.NET.Services.CuttingPlane
                     log.AppendLine();
                 }
 
-                // If we exit the loop without an integer solution
-                var maxed = SolutionResult.CreateMaxIterationsReached(AlgorithmName, rounds,
-                    objectiveValue: lastLp?.ObjectiveValue ?? double.NaN,
-                    variableValues: lastLp?.VariableValues);
+                double rawMinFormLast = double.NaN;
+                if (lastLp != null && !double.IsNaN(lastLp.ObjectiveValue))
+                    rawMinFormLast = (model.ObjectiveType == ObjectiveType.Maximize)
+                        ? -lastLp.ObjectiveValue
+                        : lastLp.ObjectiveValue;
+
+                var maxed = SolutionResult.CreateMaxIterationsReached(
+                    algorithm: AlgorithmName,
+                    iterations: rounds,
+                    objectiveValue: rawMinFormLast,
+                    variableValues: lastLp?.VariableValues,
+                    message: "Reached iteration/cut limit without integer solution."
+                );
+                maxed.ObjectiveSense = model.ObjectiveType;
                 if (lastLp?.Info != null)
                     foreach (var kv in lastLp.Info)
                         maxed.Info[kv.Key] = kv.Value;
+                maxed.Info["Style"] = "Gomory fractional cuts over LP relaxations";
+                maxed.Info["CutsAdded"] = cuts;
                 maxed.Info["IterationLog"] = log.ToString();
+                maxed.SolveTimeMs = (DateTime.UtcNow - started).TotalMilliseconds;
                 return maxed;
             }
             catch (Exception ex)
             {
                 var err = SolutionResult.CreateError(AlgorithmName, ex.Message);
+                err.ObjectiveSense = model.ObjectiveType;
                 if (lastLp?.Info != null)
                     foreach (var kv in lastLp.Info)
                         err.Info[kv.Key] = kv.Value;
                 err.Info["IterationLog"] = log.ToString();
+                err.SolveTimeMs = (DateTime.UtcNow - started).TotalMilliseconds;
                 return err;
             }
             finally
             {
-                // Solve time is on the final result already (kept minimal here)
+                // (timing already stamped onto the result objects above)
             }
         }
 

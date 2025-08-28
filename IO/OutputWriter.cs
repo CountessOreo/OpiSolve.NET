@@ -13,11 +13,27 @@ namespace OptiSolver.NET.IO
         // ----------------- helpers -----------------
         private static double DisplayObj(SolutionResult r)
         {
-            // Print in user-sense: flip if it's a Max problem and the solver stored min-form.
-            // If r.ObjectiveValue has already been normalized upstream, this still prints correctly.
-            if (double.IsNaN(r.ObjectiveValue))
+            if (r == null || double.IsNaN(r.ObjectiveValue))
                 return double.NaN;
-            return r.ObjectiveSense == ObjectiveType.Maximize ? -r.ObjectiveValue : r.ObjectiveValue;
+
+            // Primary: use the strong-typed property if it’s set
+            var sense = r.ObjectiveSense;
+
+            // Fallback: allow override from Info["ObjectiveSense"] (enum or string),
+            // which Menu stamps for every run.
+            if ((sense != ObjectiveType.Maximize && sense != ObjectiveType.Minimize) && r.Info != null)
+            {
+                if (r.Info.TryGetValue("ObjectiveSense", out var sObj))
+                {
+                    if (sObj is ObjectiveType sEnum)
+                        sense = sEnum;
+                    else if (sObj is string sStr && Enum.TryParse<ObjectiveType>(sStr, true, out var sParsed))
+                        sense = sParsed;
+                }
+            }
+
+            // Final flip to user-sense
+            return sense == ObjectiveType.Maximize ? -r.ObjectiveValue : r.ObjectiveValue;
         }
 
         private static string Vec(double[] x) =>
