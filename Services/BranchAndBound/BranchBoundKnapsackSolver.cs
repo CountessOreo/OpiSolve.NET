@@ -42,46 +42,35 @@ namespace OptiSolver.NET.Services.BranchAndBound
         #region Public surface
         public override bool CanSolve(LPModel model)
         {
-            // Classic 0-1 knapsack structure:
-            // - One constraint with relation <= (capacity)
-            // - All decision variables are Binary
-            // - Objective is linear (values), constraint coefficients are weights
-            if (model == null)
+            if (model == null || model.Variables == null || model.Constraints == null)
                 return false;
 
-            // Must have variables and a non-null constraints list
-            if (model.Variables == null || model.Variables.Count == 0)
-                return false;
-            if (model.Constraints == null || model.Constraints.Count == 0)
-                return false;
+            // Exactly one constraint (capacity)
             if (model.Constraints.Count != 1)
                 return false;
 
-            // All binary?
-            try
-            {
-                for (int i = 0; i < model.Variables.Count; i++)
-                {
-                    var v = model.Variables[i];
-                    if (v.Type != VariableType.Binary)
-                        return false;
-                }
-            }
-            catch
-            {
-                // If the above throws because Type is absent, fail fast.
-                return false;
-            }
-
-            // Relation must be <= (we accept '=' too if capacity is exact)
-            var rel = GetRelation(model.Constraints[0]);
-            if (rel != "<=" && rel != "=")
+            // All variables must be binary
+            if (model.Variables.Any(v => v.Type != VariableType.Binary))
                 return false;
 
-            // Sanity check: dimension match between objective and constraint row
-            var values = GetObjectiveCoefficients(model);
-            var weights = GetConstraintCoefficients(model.Constraints[0]);
-            return values != null && weights != null && values.Length == weights.Length;
+            var cap = model.Constraints[0];
+
+            // Accept ≤ or = as the capacity relation
+            var rel = cap.Relation;
+            bool okRelation = rel == ConstraintRelation.LessThanOrEqual
+                              || rel == ConstraintRelation.Equal;
+            if (!okRelation)
+                return false;
+
+            // Nonnegative capacity and weights; size matches n
+            if (cap.RightHandSide < 0)
+                return false;
+            if (cap.Coefficients == null || cap.Coefficients.Count != model.Variables.Count)
+                return false;
+            if (cap.Coefficients.Any(w => w < 0))
+                return false;
+
+            return true;
         }
 
         public override SolutionResult Solve(LPModel model, Dictionary<string, object> options = null)
@@ -208,8 +197,11 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 var x = bestTake.Select(t => t ? 1.0 : 0.0).ToArray();
                 var value = x.Select((t, i) => t * items[i].Value).Sum();
 
+                // Store in min-form so writer flips for Max to user-sense correctly
+                double objectiveRaw = (model.ObjectiveType == ObjectiveType.Maximize) ? -value : value;
+
                 var result = SolutionResult.CreateOptimal(
-                    objectiveValue: value,
+                    objectiveValue: objectiveRaw,
                     variableValues: x,
                     iterations: _explored,
                     algorithm: AlgorithmName,
@@ -235,6 +227,10 @@ namespace OptiSolver.NET.Services.BranchAndBound
 
                 // For consistency with the rest of the project:
                 result.AlgorithmUsed = AlgorithmName;
+
+                // Stamp sense for display helpers
+                result.ObjectiveSense = model.ObjectiveType;
+                result.Info["ObjectiveSense"] = model.ObjectiveType;
 
                 return result;
             }
@@ -295,15 +291,8 @@ namespace OptiSolver.NET.Services.BranchAndBound
         /// </summary>
         private static KnapsackItem[] ExtractKnapsackItems(LPModel model, Dictionary<string, object> options)
         {
-            // Determine objective sense (try to read model.ObjectiveSense if present)
-            bool isMax = true;
-            var senseProp = model.GetType().GetProperty("ObjectiveSense");
-            if (senseProp != null)
-            {
-                var senseVal = senseProp.GetValue(model)?.ToString()?.Trim().ToLowerInvariant();
-                if (senseVal == "min" || senseVal == "minimize" || senseVal == "minimization")
-                    isMax = false;
-            }
+            // Determine objective sense directly from the model
+            bool isMax = model.ObjectiveType == ObjectiveType.Maximize;
 
             var values = GetObjectiveCoefficients(model)
                          ?? throw new InvalidInputException("Objective coefficients not found.");
@@ -380,29 +369,31 @@ namespace OptiSolver.NET.Services.BranchAndBound
 
         private static double[] GetObjectiveCoefficients(LPModel model)
         {
-            // Try: model.Objective.Coefficients
-            var objProp = model.GetType().GetProperty("Objective");
-            if (objProp != null)
+            if (model == null)
+                return null;
+
+            // Preferred & fastest path: coefficients stored on variables.
+            if (model.Variables != null && model.Variables.Count > 0)
             {
-                var objVal = objProp.GetValue(model);
-                if (objVal != null)
-                {
-                    var coefProp = objVal.GetType().GetProperty("Coefficients");
-                    if (coefProp != null && typeof(IEnumerable<double>).IsAssignableFrom(coefProp.PropertyType))
-                        return ((IEnumerable<double>)coefProp.GetValue(objVal)).ToArray();
-                }
+                return model.Variables.Select(v => v.Coefficient).ToArray();
             }
 
-            // Try: model.ObjectiveCoefficients
-            var oc = model.GetType().GetProperty("ObjectiveCoefficients");
-            if (oc != null && typeof(IEnumerable<double>).IsAssignableFrom(oc.PropertyType))
-                return ((IEnumerable<double>)oc.GetValue(model)).ToArray();
+            // Fallbacks: some shapes carry c on the model under common names.
+            var t = model.GetType();
 
-            // Try: model.C (common in matrix forms)
-            var cProp = model.GetType().GetProperty("C");
-            if (cProp != null && typeof(IEnumerable<double>).IsAssignableFrom(cProp.PropertyType))
-                return ((IEnumerable<double>)cProp.GetValue(model)).ToArray();
+            // Try "ObjectiveCoefficients" or "C" (double[])
+            var ocProp =
+                t.GetProperty("ObjectiveCoefficients") ??
+                t.GetProperty("C");
+            if (ocProp != null && ocProp.PropertyType == typeof(double[]))
+                return (double[])ocProp.GetValue(model);
 
+            // Try "Objective" if it’s a double[]
+            var objProp = t.GetProperty("Objective");
+            if (objProp != null && objProp.PropertyType == typeof(double[]))
+                return (double[])objProp.GetValue(model);
+
+            // Nothing found
             return null;
         }
 

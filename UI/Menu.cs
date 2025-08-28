@@ -471,19 +471,39 @@ namespace OptiSolver.NET.UI
                     index: v.Index,
                     name: v.Name,
                     coefficient: v.Coefficient,
-                    type: VariableType.Positive, // continuous ≥ 0
+                    type: VariableType.Positive,                // continuous ≥ 0
                     lowerBound: Math.Max(0.0, v.LowerBound),
                     upperBound: double.IsInfinity(ub) ? double.PositiveInfinity : Math.Max(0.0, ub)
                 ));
             }
 
-            // Constraints (copy as-is)
+            // Original constraints (copy as-is)
             foreach (var c in m.Constraints)
             {
                 var nc = new Constraint { Relation = c.Relation, RightHandSide = c.RightHandSide };
                 foreach (var aij in c.Coefficients)
                     nc.Coefficients.Add(aij);
                 lp.Constraints.Add(nc);
+            }
+
+            // >>> NEW: encode finite upper bounds as explicit ≤ constraints <<<
+            int n = lp.Variables.Count;
+            for (int j = 0; j < n; j++)
+            {
+                var ub = lp.Variables[j].UpperBound;
+                if (!double.IsInfinity(ub)) // include binaries (ub = 1)
+                {
+                    var ubRow = new Constraint
+                    {
+                        Relation = ConstraintRelation.LessThanOrEqual,
+                        RightHandSide = ub
+                    };
+                    // row: e_j^T x ≤ ub
+                    for (int k = 0; k < n; k++)
+                        ubRow.Coefficients.Add(0.0);
+                    ubRow.Coefficients[j] = 1.0;
+                    lp.Constraints.Add(ubRow);
+                }
             }
 
             return lp;
