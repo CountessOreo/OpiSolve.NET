@@ -5,7 +5,7 @@ Message   : Integer optimum found via cutting planes.
 Style     : Gomory fractional cuts over LP relaxations
 Objective : 2,000
 Iterations: 1
-SolveTime : 24,821 ms
+SolveTime : 29,559 ms
 
 x*        : [ 0,000, 2,000 ]
 

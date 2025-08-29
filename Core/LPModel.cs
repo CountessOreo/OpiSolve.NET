@@ -38,6 +38,11 @@ namespace OptiSolver.NET.Core
         // Number of constraints
         public int ConstraintCount => Constraints?.Count ?? 0;
 
+        public string? NonlinearExpr { get; set; }
+
+        // Optional tolerance requested by the NLP input (e.g., from "TOL: 1e-6")
+        public double? NonlinearTol { get; set; }
+
         /// <summary>
         /// Default constructor
         /// </summary>
@@ -49,6 +54,8 @@ namespace OptiSolver.NET.Core
             Constraints = new List<Constraint>();
             ObjectiveValue = 0.0;
             Status = SolutionStatus.NotSolved;
+            NonlinearExpr = null;
+            NonlinearTol = null;
         }
 
         /// <summary>
@@ -64,6 +71,8 @@ namespace OptiSolver.NET.Core
             Constraints = new List<Constraint>();
             ObjectiveValue = 0.0;
             Status = SolutionStatus.NotSolved;
+            NonlinearExpr = null;
+            NonlinearTol = null;
         }
 
         /// <summary>
@@ -77,6 +86,8 @@ namespace OptiSolver.NET.Core
             Constraints = new List<Constraint>(constraints ?? new List<Constraint>());
             ObjectiveValue = 0.0;
             Status = SolutionStatus.NotSolved;
+            NonlinearExpr = null;
+            NonlinearTol = null;
 
             ValidateModel();
         }
@@ -483,6 +494,9 @@ namespace OptiSolver.NET.Core
             {
                 clonedModel.Constraints.Add(constraint.Clone());
             }
+
+            clonedModel.NonlinearExpr = this.NonlinearExpr;
+            clonedModel.NonlinearTol = this.NonlinearTol;
 
             return clonedModel;
         }

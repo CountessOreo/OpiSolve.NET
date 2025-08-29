@@ -1,0 +1,6 @@
+MODEL: NLP-1D
+VAR: x in [0, 4]
+OBJECTIVE: minimize f(x) = x^4 - 3*x^3 + 2
+INITIAL: x0 = 0.5
+TOL: 1e-6
+END

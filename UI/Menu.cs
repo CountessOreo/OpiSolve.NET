@@ -1,13 +1,15 @@
-﻿using System;
+﻿using OptiSolver.NET.Analysis;
+using OptiSolver.NET.Controller;
+using OptiSolver.NET.Core;
+using OptiSolver.NET.Services.Base;
+using OptiSolver.NET.Services.BranchAndBound;
+using OptiSolver.NET.Services.Simplex;
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Collections.Generic;
-using OptiSolver.NET.Controller;
-using OptiSolver.NET.Services.Base;
-using OptiSolver.NET.Core;
-using OptiSolver.NET.Analysis;   // sensitivity/duality
-using OptiSolver.NET.Services.BranchAndBound; // for knapsack CanSolve guardrail
-using OptiSolver.NET.Services.Simplex;        // RevisedSimplexSolver for LP relaxation
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace OptiSolver.NET.UI
 {
@@ -66,7 +68,8 @@ namespace OptiSolver.NET.UI
                         "3" => "knapsack",
                         "4" => "bb-ilp",
                         "5" => "cutting",
-                        "6" => "nonlinear-demo",
+                        // Nonlinear is file-driven (no demo prompts)
+                        "6" => "nonlinear",
                         _ => "revised",
                     };
                     break;
@@ -118,32 +121,6 @@ namespace OptiSolver.NET.UI
                         options["Tolerance"] = tol;
                 }
 
-                // Nonlinear demo: collect function & bounds
-                if (solverKey == "nonlinear-demo")
-                {
-                    Console.Write("Enter function f(x) (e.g., x^2 + 3*x + 2): ");
-                    var fx = Console.ReadLine();
-                    Console.Write("Lower bound L (blank=-1e9): ");
-                    var sL = Console.ReadLine();
-                    Console.Write("Upper bound U (blank=+1e9): ");
-                    var sU = Console.ReadLine();
-                    Console.Write("Initial x0 (blank=0): ");
-                    var sX0 = Console.ReadLine();
-
-                    options["Function"] = string.IsNullOrWhiteSpace(fx) ? "x^2" : fx.Trim();
-                    if (double.TryParse(sL, out var L))
-                        options["LowerBound"] = L;
-                    if (double.TryParse(sU, out var U))
-                        options["UpperBound"] = U;
-                    if (double.TryParse(sX0, out var X0))
-                        options["InitialX"] = X0;
-
-                    Console.Write("Nonlinear verbose log? (y/N): ");
-                    var nv = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
-                    if (nv == "y" || nv == "yes")
-                        options["Verbose"] = true;
-                }
-
                 Console.WriteLine();
                 Console.WriteLine($"[RUN] {solverKey} on \"{path}\"");
                 var controller = new SolverController();
@@ -152,22 +129,22 @@ namespace OptiSolver.NET.UI
 
                 try
                 {
-                    // Parse model only when needed (nonlinear demo doesn't use it)
-                    if (solverKey == "nonlinear-demo")
+                    // NLP: parse with dedicated lightweight parser to avoid LP parser errors
+                    if (solverKey == "nonlinear")
                     {
-                        model = new LPModel();
-                        Console.WriteLine("Nonlinear demo selected: skipping LP parsing.");
+                        model = Nlp1DFileParser.Parse(path);
                     }
                     else
                     {
+                        // LP/MILP: use standard InputParser
                         var parser = new OptiSolver.NET.IO.InputParser();
                         model = parser.ParseFile(path);
-
-                        // QoL: echo detected size
-                        var m = model.Constraints.Count;
-                        var n = model.Variables.Count;
-                        Console.WriteLine($"Detected: m = {m} constraint(s), n = {n} variable(s).");
                     }
+
+                    // QoL: echo detected size (may be 0 constraints for NLP)
+                    var m = model.Constraints.Count;
+                    var n = model.Variables.Count;
+                    Console.WriteLine($"Detected: m = {m} constraint(s), n = {n} variable(s).");
 
                     // Guardrail: knapsack eligibility
                     if (solverKey == "knapsack")
@@ -346,15 +323,9 @@ namespace OptiSolver.NET.UI
                         }
                         case "6":
                         {
-                            Console.Write("Constraint index i (1..m): ");
-                            if (!int.TryParse(Console.ReadLine(), out int i) || i <= 0)
-                            { Console.WriteLine("Invalid index."); break; }
-                            Console.Write("Δb_i value: ");
-                            if (!double.TryParse(Console.ReadLine(), out double delta))
-                            { Console.WriteLine("Invalid delta."); break; }
-                            var (xNew, objNew) = SensitivityAnalyser.ApplyRhsChange(saModel, saResult, i - 1, delta);
-                            Console.WriteLine($"New objective (same basis): {objNew:0.000}");
-                            Console.WriteLine($"x' = [{string.Join(", ", xNew.Select(v => v.ToString("0.000")))}]");
+                            Console.WriteLine("Apply Δ to RHS (keep basis) is only meaningful for LP results.");
+                            Console.WriteLine("Tip: If this solve was MILP or Nonlinear, re-run a continuous LP to enable this.");
+                            // TODO: wire SensitivityAnalyser.ApplyRhsDelta(saModel, saResult, i, db) when available.
                             break;
                         }
                         case "7":
@@ -525,5 +496,102 @@ namespace OptiSolver.NET.UI
                 Console.WriteLine($"Saved: {p}");
             }
         }
+
+        // =========================
+        // Minimal NLP-1D parser
+        // =========================
+        private static class Nlp1DFileParser
+        {
+            public static LPModel Parse(string path)
+            {
+                var lines = File.ReadAllLines(path);
+
+                string expr = null;
+                double? tol = null;
+                double L = double.NegativeInfinity, U = double.PositiveInfinity;
+                double x0 = 0.0;
+                bool haveVar = false, haveObj = false;
+
+                foreach (var raw in lines)
+                {
+                    var line = (raw ?? "").Trim();
+                    if (line.Length == 0)
+                        continue;
+
+                    // VAR: x in [L, U]
+                    var mVar = Regex.Match(line, @"^\s*VAR\s*:\s*x\s*in\s*\[\s*([^\],]+)\s*,\s*([^\]]+)\s*\]\s*$", RegexOptions.IgnoreCase);
+                    if (mVar.Success)
+                    {
+                        L = ParseDouble(mVar.Groups[1].Value);
+                        U = ParseDouble(mVar.Groups[2].Value);
+                        haveVar = true;
+                        continue;
+                    }
+
+                    // OBJECTIVE: minimize f(x) = <expr>
+                    var mObj = Regex.Match(line, @"^\s*OBJECTIVE\s*:\s*minimize\s*f\s*\(\s*x\s*\)\s*=\s*(.+)$", RegexOptions.IgnoreCase);
+                    if (mObj.Success)
+                    {
+                        expr = mObj.Groups[1].Value.Trim();
+                        haveObj = true;
+                        continue;
+                    }
+
+                    // INITIAL: x0 = <value>
+                    var mInit = Regex.Match(line, @"^\s*INITIAL\s*:\s*x0\s*=\s*([^\s]+)\s*$", RegexOptions.IgnoreCase);
+                    if (mInit.Success)
+                    {
+                        x0 = ParseDouble(mInit.Groups[1].Value);
+                        continue;
+                    }
+
+                    // TOL: <value>
+                    var mTol = Regex.Match(line, @"^\s*TOL\s*:\s*([^\s]+)\s*$", RegexOptions.IgnoreCase);
+                    if (mTol.Success)
+                    {
+                        var t = ParseDouble(mTol.Groups[1].Value);
+                        if (t > 0 && !double.IsInfinity(t))
+                            tol = t;
+                        continue;
+                    }
+                }
+
+                if (!haveObj)
+                    throw new InvalidOperationException("NLP parser: OBJECTIVE line not found (expected 'OBJECTIVE: minimize f(x) = ...').");
+                if (!haveVar)
+                    throw new InvalidOperationException("NLP parser: VAR line not found (expected 'VAR: x in [L, U]').");
+
+                // Build model with one variable "x"
+                var model = new LPModel
+                {
+                    Name = "NLP-1D",
+                    ObjectiveType = ObjectiveType.Minimize
+                };
+
+                var x = new Variable(index: 0, name: "x", coefficient: 0.0, type: VariableType.Unrestricted,
+                                     lowerBound: L, upperBound: U);
+                x.Value = x0;
+                model.Variables.Add(x);
+
+                model.NonlinearExpr = expr;
+                model.NonlinearTol = tol;
+
+                // No linear constraints for this NLP
+                return model;
+            }
+
+            private static double ParseDouble(string s)
+            {
+                s = (s ?? "").Trim();
+                if (s.Equals("+inf", StringComparison.OrdinalIgnoreCase) || s.Equals("inf", StringComparison.OrdinalIgnoreCase) || s.Equals("+infinity", StringComparison.OrdinalIgnoreCase))
+                    return double.PositiveInfinity;
+                if (s.Equals("-inf", StringComparison.OrdinalIgnoreCase) || s.Equals("-infinity", StringComparison.OrdinalIgnoreCase))
+                    return double.NegativeInfinity;
+                if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+                    throw new FormatException($"Invalid numeric literal: '{s}'");
+                return v;
+            }
+        }
     }
 }
+

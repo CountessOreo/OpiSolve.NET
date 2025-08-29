@@ -12,10 +12,10 @@ namespace OptiSolver.NET.Services.Nonlinear
     /// Minimizes user-provided expression f(x) on a box [L, U].
     ///
     /// Options (pass via 'options' dictionary):
-    ///  - "Function"   : string, required. Example: "x^2 + 3*x + 2"
-    ///  - "LowerBound" : double, optional (default = -1e9)
-    ///  - "UpperBound" : double, optional (default = +1e9)
-    ///  - "InitialX"   : double, optional (default = 0)
+    ///  - "Function"     : string, required. Example: "x^2 + 3*x + 2"
+    ///  - "LowerBound"   : double, optional (default = -1e9)
+    ///  - "UpperBound"   : double, optional (default = +1e9)
+    ///  - "InitialX"     : double, optional (default = 0)
     ///  - "MaxIterations": int, optional (default = 2000)
     ///  - "Tolerance"    : double, optional (default = 1e-8)
     ///  - "Verbose"      : bool, optional (default = false)
@@ -31,7 +31,7 @@ namespace OptiSolver.NET.Services.Nonlinear
         public override string AlgorithmName => "Nonlinear 1D (Projected GD)";
         public override string Description => "Minimize a 1D non-linear function f(x) with box bounds using projected gradient descent.";
 
-        public override bool CanSolve(LPModel model) => true; 
+        public override bool CanSolve(LPModel model) => true;
 
         public override Dictionary<string, object> GetDefaultOptions() => new()
         {
@@ -61,10 +61,9 @@ namespace OptiSolver.NET.Services.Nonlinear
 
             if (double.IsNaN(L) || double.IsNaN(U) || L > U)
                 return SolutionResult.CreateError(AlgorithmName, "Invalid bounds: LowerBound must be <= UpperBound.");
-            if (x < L)
-                x = L;
-            if (x > U)
-                x = U;
+
+            // Ensure starting point is inside the box
+            x = Project(x, L, U);
 
             // Build expression evaluator
             var eval = new ExpressionEvaluator(fStr);
@@ -80,21 +79,62 @@ namespace OptiSolver.NET.Services.Nonlinear
             log.AppendLine($"Iter 0 : x = {Round3(x)}, f = {Round3(fx)}, |g| = {Round3(Math.Abs(grad))}");
 
             int iter = 0;
+            const double boundTol = 1e-15; // for detecting exact-on-bound due to projection
+
             while (iter < maxIt)
             {
                 iter++;
 
-                // Stopping on gradient infinity/NaN
+                // Stopping on gradient invalidity
                 if (double.IsNaN(grad) || double.IsInfinity(grad))
                 {
                     log.AppendLine("[STOP] Gradient invalid (NaN/Inf).");
                     break;
                 }
 
-                if (Math.Abs(grad) < tol)
+                // ---- Projected optimality stopping rule (1D box) ----
+                bool atLower = Math.Abs(x - L) <= boundTol;
+                bool atUpper = Math.Abs(x - U) <= boundTol;
+                double g = grad;
+
+                if (!atLower && !atUpper)
                 {
-                    log.AppendLine($"[STOP] |grad| < tol ({tol}).");
-                    break;
+                    // Interior: classic gradient norm test
+                    if (Math.Abs(g) < tol)
+                    {
+                        log.AppendLine($"[STOP] |grad| < tol ({tol}).");
+                        break;
+                    }
+                }
+                else
+                {
+                    // On a bound: only stop if there is NO feasible descent direction.
+                    // Lower bound: feasible descent is + direction (need g >= -tol to stop)
+                    // Upper bound: feasible descent is - direction (need g <= +tol to stop)
+                    bool noFeasibleDescent =
+                        (atLower && g >= -tol) ||
+                        (atUpper && g <= +tol);
+
+                    if (noFeasibleDescent)
+                    {
+                        // Tiny interior nudge to avoid flat-plateau false stops
+                        double eps = Math.Max(1e-8, 1e-4 * Math.Max(1.0, Math.Abs(x)));
+                        double xTry = atLower ? Math.Min(U, x + eps) : Math.Max(L, x - eps);
+                        double fTry = eval.Eval(xTry);
+
+                        if (fTry + 1e-12 >= fx)
+                        {
+                            log.AppendLine($"[STOP] Projected first-order condition satisfied at bound (tol={tol}).");
+                            break;
+                        }
+
+                        // Accept nudge and continue
+                        x = xTry;
+                        fx = fTry;
+                        grad = NumericalGrad(eval, x);
+                        log.AppendLine($"  nudged from bound to x = {Round3(x)} (f={Round3(fx)})");
+                        // (fall through to line search this iteration)
+                    }
                 }
 
                 // Backtracking line search (Armijo)
@@ -106,11 +146,11 @@ namespace OptiSolver.NET.Services.Nonlinear
                 int btCount = 0;
                 while (true)
                 {
-                    xTrial = Project(x - step * grad, L, U);
+                    xTrial = Project(x - step * g, L, U);
                     fTrial = eval.Eval(xTrial);
 
-                    // Armijo: f(x_s) <= f(x) - c1 * step * grad^2 (since dim=1, p=-grad)
-                    if (fTrial <= fx - c1 * step * grad * grad || step < 1e-16)
+                    // Armijo: f(x_s) <= f(x) - c1 * step * g^2  (since p = -g in 1D)
+                    if (fTrial <= fx - c1 * step * g * g || step < 1e-16)
                         break;
 
                     step *= beta;
@@ -128,6 +168,7 @@ namespace OptiSolver.NET.Services.Nonlinear
 
                 log.AppendLine($"Iter {iter} : x = {Round3(x)}, f = {Round3(fx)}, |g| = {Round3(Math.Abs(grad))}, step = {Round3(step)}");
 
+                // Small parameter change stop
                 if (Math.Abs(x - xPrev) < Math.Max(1e-15, tol * Math.Max(1.0, Math.Abs(x))))
                 {
                     log.AppendLine($"[STOP] Small parameter change |Δx| below threshold ({tol}).");
@@ -144,6 +185,7 @@ namespace OptiSolver.NET.Services.Nonlinear
                 message: "Nonlinear 1D optimization finished."
             );
 
+            // Preserve both keys to match your existing OutputWriter expectations
             result.Info["IterationLog"] = log.ToString();
             result.Info["Log"] = log.ToString();
 

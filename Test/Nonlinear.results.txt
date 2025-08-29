@@ -1,0 +1,22 @@
+=== OPTISOLVER.NET RESULT ===
+Algorithm : Nonlinear 1D (Projected GD)
+Status    : Optimal
+Message   : Nonlinear 1D optimization finished.
+Style     : N/A
+Objective : -6,543
+Iterations: 2
+SolveTime : 4,379 ms
+
+x*        : [ 2,250 ]
+
+=== CANONICAL FORM & ITERATIONS ===
+=== NONLINEAR 1D (Projected Gradient Descent) ===
+f(x)   : x^4 - 3*x^3 + 2
+bounds : [0.000, 4.000]
+x0     : 0.500
+
+Iter 0 : x = 0.500, f = 1.688, |g| = 1.750
+  backtracking steps = 0
+Iter 1 : x = 2.250, f = -6.543, |g| = 0.000, step = 1.000
+[STOP] |grad| < tol (1E-06).
+
