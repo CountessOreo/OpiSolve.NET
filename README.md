@@ -207,5 +207,16 @@ This project was completed by:
 
 ## Screenshots
 
+### Solver Menu
+<img width="644" height="248" alt="image" src="https://github.com/user-attachments/assets/990b7471-5220-4e24-a6f8-4e6593c67e07" />
+
+### Results file (Example: Branch and Bound)
+<img width="659" height="596" alt="image" src="https://github.com/user-attachments/assets/12b9618c-352b-4cf2-84c5-a2a379ba0745" />
+
+### Tables
+<img width="717" height="689" alt="image" src="https://github.com/user-attachments/assets/11ad3b75-5875-4a83-b695-df2f4cd55adc" />
+
+### Final Solution and Best Candidate
+<img width="803" height="265" alt="image" src="https://github.com/user-attachments/assets/d5c19df7-b0f7-4a2c-a478-074296e445fe" />
 
 
