@@ -1,0 +1,11 @@
+=== OPTISOLVER.NET RESULT ===
+Algorithm : Primal Simplex (Tableau)
+Status    : Error
+Message   : Phase I unbounded - model setup error.
+Style     : Tableau
+Objective : -0,000
+Iterations: 0
+SolveTime : 0,000 ms
+
+
+(No iteration log available from solver.)

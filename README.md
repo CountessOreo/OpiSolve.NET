@@ -201,7 +201,7 @@ Supports solving basic non-linear functions like `f(x) = x²` using iterative op
 
 This project was completed by:
 - Hayley Treutens @CountessOreo
-- 
+- Leonard Louwrens @Lehan618
 - 
 - 
 
