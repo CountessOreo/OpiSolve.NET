@@ -203,7 +203,7 @@ This project was completed by:
 - Hayley Treutens @CountessOreo
 - Leonard Louwrens @Lehan618
 - Di-Jancko Calitz @DiJanckoCalitz
-- 
+- Ferdinando Storm Speranza @stormsperanza
 
 ## Screenshots
 
