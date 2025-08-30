@@ -60,7 +60,7 @@ namespace OptiSolver.NET.Services.Simplex
                 LogHeader("=== REVISED SIMPLEX: CANONICAL FORM ===");
                 _log.AppendLine($"m={m}, n={n}, Objective={_canonical.ObjectiveType}, RequiresPhaseI={_canonical.RequiresPhaseI}");
 
-                // Initial basis from canonical mapping (slacks/artificials)
+                // Initial basis from canonical A (unit columns first; artificial fallback)
                 PrepareInitialBasis();
 
                 // ---------------- Phase I (feasibility) ----------------
@@ -113,7 +113,7 @@ namespace OptiSolver.NET.Services.Simplex
                     var xCanon = phaseII.CanonicalSolution;
                     var xOriginal = _canonical.VariableMapping.GetOriginalSolution(xCanon);
 
-                    // Correct objective in original sense: c^T x
+                    // Objective in user-sense: c^T x (no flips)
                     double objective = Dot(_canonical.ObjectiveCoefficients, xCanon);
 
                     var result = SolutionResult.CreateOptimal(
@@ -132,7 +132,7 @@ namespace OptiSolver.NET.Services.Simplex
                     result.Info["BInv"] = _BInv;                                    // double[,]
                     var yDual = ComputeDual(cPhaseII, _Bidx, _BInv);
                     result.Info["DualY"] = yDual;
-                    result.DualValues = (double[])yDual.Clone();     
+                    result.DualValues = (double[])yDual.Clone();
                     result.Info["IterationLog"] = _log.ToString();
                     return result;
                 }
@@ -252,10 +252,116 @@ namespace OptiSolver.NET.Services.Simplex
 
         private void PrepareInitialBasis()
         {
-            var (basisIndices, _) = _canonical.GetInitialBasicSolution();
-            _Bidx = basisIndices.ToList();
+            int m = _canonical.ConstraintCount;
+            int n = _canonical.TotalVariables;
+            var A = _canonical.ConstraintMatrix;
+            var arts = (IEnumerable<int>)_canonical.ArtificialVariableIndices ?? Array.Empty<int>();
+            var artSet = new HashSet<int>(arts);
+
+            _Bidx = Enumerable.Repeat(-1, m).ToList();
+
+            // 1) Prefer true unit columns (slacks) — classic identity basis
+            for (int i = 0; i < m; i++)
+            {
+                int unitCol = FindUnitColumnAtRow(A, i, m, n);
+                if (unitCol >= 0)
+                {
+                    _Bidx[i] = unitCol;
+                }
+            }
+
+            // 2) For rows still without a basis var, try an artificial column for that row
+            for (int i = 0; i < m; i++)
+            {
+                if (_Bidx[i] >= 0)
+                    continue;
+
+                int artiCol = FindArtificialColumnForRow(A, i, m, n, artSet);
+                if (artiCol >= 0 && !_Bidx.Contains(artiCol))
+                {
+                    _Bidx[i] = artiCol;
+                }
+            }
+
+            // 3) Final sanity: if any row still lacks a basis, pick a reasonable column that
+            // makes B invertible (greedy). This is a rare fallback, but avoids hard failure.
+            for (int i = 0; i < m; i++)
+            {
+                if (_Bidx[i] >= 0)
+                    continue;
+
+                int picked = -1;
+                double bestAbs = 0.0;
+                for (int j = 0; j < n; j++)
+                {
+                    if (_Bidx.Contains(j))
+                        continue;
+                    double aij = A[i, j];
+                    if (Math.Abs(aij) > bestAbs + 1e-14)
+                    {
+                        bestAbs = Math.Abs(aij);
+                        picked = j;
+                    }
+                }
+                if (picked >= 0)
+                    _Bidx[i] = picked;
+            }
+
+            // If still some -1 (pathological), throw a clear message
+            if (_Bidx.Any(k => k < 0))
+                throw new InvalidOperationException("Could not construct an initial basis: missing identity/artificial columns.");
+
             RebuildBasis();
         }
+
+        private static int FindUnitColumnAtRow(double[,] A, int row, int m, int n)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                if (!Approximately(A[row, j], 1.0))
+                    continue;
+
+                bool ok = true;
+                for (int i = 0; i < m; i++)
+                {
+                    if (i == row)
+                        continue;
+                    if (!Approximately(A[i, j], 0.0))
+                    { ok = false; break; }
+                }
+                if (ok)
+                    return j;
+            }
+            return -1;
+        }
+
+        private static int FindArtificialColumnForRow(double[,] A, int row, int m, int n, HashSet<int> artSet)
+        {
+            if (artSet == null || artSet.Count == 0)
+                return -1;
+
+            foreach (var j in artSet)
+            {
+                if (j < 0 || j >= n)
+                    continue;
+                if (!Approximately(A[row, j], 1.0))
+                    continue;
+
+                bool ok = true;
+                for (int i = 0; i < m; i++)
+                {
+                    if (i == row)
+                        continue;
+                    if (!Approximately(A[i, j], 0.0))
+                    { ok = false; break; }
+                }
+                if (ok)
+                    return j;
+            }
+            return -1;
+        }
+
+        private static bool Approximately(double a, double b, double tol = EPS) => Math.Abs(a - b) < tol;
 
         private void RebuildBasis()
         {

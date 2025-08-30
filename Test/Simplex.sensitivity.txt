@@ -1,16 +1,20 @@
 === SENSITIVITY ANALYSIS REPORT ===
 
 -- Shadow Prices (π) --
-π = [ 0,000 ]
+π = [ 2,000, 1,000, 0,000 ]
 
 -- Cost Ranges (Non-Basic vars) --
 No non-basic ranges computed.
 
 -- Cost Ranges (Basic vars) --
-x1: c in [±∞, 0,000], Δ+=0,000, Δ-=±∞
+x2: c in [4,000, 1,000], Δ+=-1,000, Δ-=-2,000
+x1: c in [4,000, ±∞], Δ+=±∞, Δ-=-1,000
+x5: c in [1,000, -2,000], Δ+=-2,000, Δ-=-1,000
 
 -- RHS Ranges --
-b1: b in [0,000, ±∞], Δ+=±∞, Δ-=4,000  (π=0,000)
+b1: b in [2,000, 7,000], Δ+=3,000, Δ-=2,000  (π=2,000)
+b2: b in [0,000, 4,000], Δ+=2,000, Δ-=2,000  (π=1,000)
+b3: b in [2,000, ±∞], Δ+=±∞, Δ-=3,000  (π=0,000)
 
 -- What-if apply (quick) --
 Use: SensitivityAnalyser.ApplyRhsChange(...) / ApplyCostChange(...) / EvaluateNewActivity(...) / EvaluateNewConstraint(...)
@@ -18,8 +22,8 @@ Use: SensitivityAnalyser.ApplyRhsChange(...) / ApplyCostChange(...) / EvaluateNe
 -- Duality --
 === Duality Check (Continuous Relaxation) ===
 Primal status: Optimal
-Primal z* (user-sense): 0,000
-Dual variables (π): [ 0,000 ]
-Dual z* (b·π): 0,000
+Primal z* (user-sense): 10,000
+Dual variables (π): [ 2,000, 1,000, 0,000 ]
+Dual z* (b·π): 10,000
 Strong Duality: YES (|z_P - z_D|=0,000000)
 

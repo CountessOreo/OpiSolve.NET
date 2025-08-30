@@ -160,13 +160,10 @@ namespace OptiSolver.NET.Services.CuttingPlane
 
                     if (allInt)
                     {
-                        // Revised Simplex reports user-sense z; store min-form internally for consistent display flipping.
-                        double rawMinForm = (model.ObjectiveType == ObjectiveType.Maximize)
-                            ? -lastLp.ObjectiveValue
-                            : lastLp.ObjectiveValue;
+                        double userSense = lastLp.ObjectiveValue;
 
                         var done = SolutionResult.CreateOptimal(
-                            objectiveValue: rawMinForm,
+                            objectiveValue: userSense,
                             variableValues: x,
                             iterations: rounds,
                             algorithm: AlgorithmName,

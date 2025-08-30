@@ -333,9 +333,7 @@ namespace OptiSolver.NET.Services.Simplex
             var xOriginal = _canonical.VariableMapping.GetOriginalSolution(xCanonFull);
 
             // Calculate objective value
-            double value = (_canonical.ObjectiveType == ObjectiveType.Maximize)
-                ? -_tab[0, _n]
-                : _tab[0, _n];
+            double value = _tab[0, _n];
 
             var reducedCosts = GetReducedCostsRow();
 

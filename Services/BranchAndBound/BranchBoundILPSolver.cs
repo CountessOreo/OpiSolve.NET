@@ -95,11 +95,11 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 log.AppendLine($"--- Subproblem Node #{node.NodeId} (depth={node.Depth}) ---");
                 log.AppendLine($"Bounds: {FormatBounds(node.Bounds)}");
 
+                double bound = lp.ObjectiveValue; // RAW min-form
+
                 if (lp != null)
                 {
-                    double raw = lp.ObjectiveValue;
-                    double userZ = isMax ? -raw : raw;
-                    log.AppendLine($"LP status: {lp.Status}; Obj={userZ:0.###} (user-sense){(Math.Abs(userZ - raw) < 1e-12 ? "" : $", Obj(min-form)={raw:0.###}")}");
+                    log.AppendLine($"LP status: {lp.Status}; Obj={bound:0.###}");
 
                     // Prefer a full block if present; otherwise iteration log; normalize final section
                     string lpBlock = null;
@@ -129,18 +129,16 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 if (!lp.IsOptimal)
                 { fathomed++; continue; }
 
-                double bound = lp.ObjectiveValue; // RAW min-form
-
                 // Prune by bound (RAW)
                 if (isMax)
                 {
                     if (bound <= incumbentVal + 1e-9)
-                    { fathomed++; continue; }
+                    { fathomed++; continue; } // LP upper bound not better
                 }
                 else
                 {
                     if (bound >= incumbentVal - 1e-9)
-                    { fathomed++; continue; }
+                    { fathomed++; continue; } // LP lower bound not better
                 }
 
                 var x = lp.VariableValues;
@@ -150,11 +148,9 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 {
                     if ((isMax && bound > incumbentVal + 1e-9) || (!isMax && bound < incumbentVal - 1e-9))
                     {
-                        incumbentVal = bound;   // keep RAW
+                        incumbentVal = bound;   // user-sense
                         incumbentX = MapBackToOriginal(model, nodeModel, x);
-
-                        double userInc = isMax ? -incumbentVal : incumbentVal;
-                        log.AppendLine($"[INCUMBENT] value={userInc:0.###} (user-sense){(Math.Abs(userInc - incumbentVal) < 1e-12 ? "" : $", min-form={incumbentVal:0.###}")} at node #{node.NodeId} with {node.Bounds.Count} bound(s)");
+                        log.AppendLine($"[INCUMBENT] value={incumbentVal:0.###} at node #{node.NodeId} with {node.Bounds.Count} bound(s)");
                     }
                     fathomed++;
                     continue;
@@ -166,10 +162,9 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 {
                     if ((isMax && bound > incumbentVal + 1e-9) || (!isMax && bound < incumbentVal - 1e-9))
                     {
-                        incumbentVal = bound;
-                        incumbentX = MapBackToOriginal(model, nodeModel, x);
-                        double userInc = isMax ? -incumbentVal : incumbentVal;
-                        log.AppendLine($"[INCUMBENT*] value={userInc:0.###} (user-sense){(Math.Abs(userInc - incumbentVal) < 1e-12 ? "" : $", min-form={incumbentVal:0.###}")} at node #{node.NodeId}");
+                        incumbentVal = bound;   // user-sense
+                        incumbentX = MapBackToOriginal(model, nodeModel, lp.VariableValues);
+                        log.AppendLine($"[INCUMBENT] value={incumbentVal:0.###} at node #{node.NodeId} with {node.Bounds.Count} bound(s)");
                     }
                     fathomed++;
                     continue;
@@ -222,9 +217,7 @@ namespace OptiSolver.NET.Services.BranchAndBound
             log.AppendLine("=== BEST CANDIDATE SUMMARY ===");
             if (incumbentX != null)
             {
-                double userInc = isMax ? -incumbentVal : incumbentVal;
-                log.AppendLine($"Incumbent objective = {userInc:0.###}");
-                log.AppendLine($"x* = [ {string.Join(", ", incumbentX.Select(v => v.ToString("0.###")))} ]");
+                log.AppendLine($"Incumbent objective = {incumbentVal:0.###}");
             }
             else
             {
@@ -233,7 +226,7 @@ namespace OptiSolver.NET.Services.BranchAndBound
 
             var res = (incumbentX != null)
                 ? SolutionResult.CreateOptimal(
-                    objectiveValue: incumbentVal, // RAW min-form; writers normalize
+                    objectiveValue: incumbentVal, 
                     variableValues: incumbentX,
                     iterations: explored,
                     algorithm: AlgorithmName,
@@ -264,10 +257,10 @@ namespace OptiSolver.NET.Services.BranchAndBound
         // ---------- helpers to normalize LP logs ----------
         private static string NormalizeLpLogToUserSense(string lpLog, ObjectiveType sense, SolutionResult lp)
         {
-            // Remove any existing "FINAL SOLUTION:" block and re-append a user-sense version
             if (string.IsNullOrWhiteSpace(lpLog))
                 return lpLog ?? string.Empty;
 
+            // Strip any prior "FINAL SOLUTION:" block (if present) and re-append a clean final block.
             var idx = lpLog.IndexOf("FINAL SOLUTION:", StringComparison.OrdinalIgnoreCase);
             string head = idx >= 0 ? lpLog.Substring(0, idx).TrimEnd() : lpLog.TrimEnd();
 
@@ -275,8 +268,10 @@ namespace OptiSolver.NET.Services.BranchAndBound
             sb.AppendLine(head);
             sb.AppendLine();
             sb.AppendLine("FINAL SOLUTION:");
-            double raw = lp.ObjectiveValue;
-            double user = sense == ObjectiveType.Maximize ? -raw : raw;
+
+            // User-sense directly from the LP solver:
+            double user = lp.ObjectiveValue;
+
             sb.AppendLine($"Objective Value: {user:0,0.###}");
             sb.AppendLine($"Iterations: {lp.Iterations}");
             if (lp.VariableValues != null && lp.VariableValues.Length > 0)

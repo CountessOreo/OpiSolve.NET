@@ -2,10 +2,10 @@
 Algorithm : Nonlinear 1D (Projected GD)
 Status    : Optimal
 Message   : Nonlinear 1D optimization finished.
-Style     : N/A
+Style     : Projected Gradient Descent
 Objective : -6,543
-Iterations: 2
-SolveTime : 4,379 ms
+Iterations: 3
+SolveTime : 4,283 ms
 
 x*        : [ 2,250 ]
 

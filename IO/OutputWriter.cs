@@ -13,27 +13,8 @@ namespace OptiSolver.NET.IO
         // ----------------- helpers -----------------
         private static double DisplayObj(SolutionResult r)
         {
-            if (r == null || double.IsNaN(r.ObjectiveValue))
-                return double.NaN;
-
-            // Primary: use the strong-typed property if it’s set
-            var sense = r.ObjectiveSense;
-
-            // Fallback: allow override from Info["ObjectiveSense"] (enum or string),
-            // which Menu stamps for every run.
-            if ((sense != ObjectiveType.Maximize && sense != ObjectiveType.Minimize) && r.Info != null)
-            {
-                if (r.Info.TryGetValue("ObjectiveSense", out var sObj))
-                {
-                    if (sObj is ObjectiveType sEnum)
-                        sense = sEnum;
-                    else if (sObj is string sStr && Enum.TryParse<ObjectiveType>(sStr, true, out var sParsed))
-                        sense = sParsed;
-                }
-            }
-
-            // Final flip to user-sense
-            return sense == ObjectiveType.Maximize ? -r.ObjectiveValue : r.ObjectiveValue;
+            // Solvers emit user-sense already; show verbatim.
+            return r?.ObjectiveValue ?? double.NaN;
         }
 
         private static string Vec(double[] x) =>
@@ -163,7 +144,7 @@ namespace OptiSolver.NET.IO
                 sb.AppendLine($"Relaxation: {relax}");
 
             var disp = DisplayObj(r);
-            sb.AppendLine($"Objective : {(double.IsNaN(disp) ? "NaN" : UI.DisplayHelper.Round3(disp))}");
+            sb.AppendLine($"Objective : {(double.IsNaN(disp) ? "NaN" : DisplayHelper.Round3(disp))}");
             sb.AppendLine($"Iterations: {r.Iterations}");
             sb.AppendLine($"SolveTime : {r.SolveTimeMs:0.000} ms");
             sb.AppendLine();
@@ -174,11 +155,11 @@ namespace OptiSolver.NET.IO
 
             // Reduced costs / duals / shadow prices
             if (r.ReducedCosts != null)
-                sb.AppendLine($"reduced    : [ {string.Join(", ", r.ReducedCosts.Select(UI.DisplayHelper.Round3))} ]");
+                sb.AppendLine($"reduced    : [ {string.Join(", ", r.ReducedCosts.Select(DisplayHelper.Round3))} ]");
             if (r.DualValues != null)
-                sb.AppendLine($"dual y     : [ {string.Join(", ", r.DualValues.Select(UI.DisplayHelper.Round3))} ]");
+                sb.AppendLine($"dual y     : [ {string.Join(", ", r.DualValues.Select(DisplayHelper.Round3))} ]");
             if (r.ShadowPrices != null)
-                sb.AppendLine($"shadow π   : [ {string.Join(", ", r.ShadowPrices.Select(UI.DisplayHelper.Round3))} ]");
+                sb.AppendLine($"shadow π   : [ {string.Join(", ", r.ShadowPrices.Select(DisplayHelper.Round3))} ]");
             if (r.HasAlternateOptima)
                 sb.AppendLine("Note      : Alternate optimal solutions exist.");
             sb.AppendLine();
@@ -188,9 +169,6 @@ namespace OptiSolver.NET.IO
             if (!string.IsNullOrEmpty(log))
             {
                 sb.AppendLine("=== CANONICAL FORM & ITERATIONS ===");
-                // We keep the solver's raw block intact. If you want these internal
-                // values automatically “user-sense” too, move the normalization into
-                // the solver when composing this block (recommended).
                 sb.AppendLine(log);
             }
             else

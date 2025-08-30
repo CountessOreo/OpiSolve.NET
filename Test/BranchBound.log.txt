@@ -5,7 +5,7 @@ Relaxation engine used : Primal Simplex (Tableau)
 
 --- Subproblem Node #1 (depth=0) ---
 Bounds: (none)
-LP status: Optimal; Obj=13 (user-sense), Obj(min-form)=-13
+LP status: Optimal; Obj=13
 
 === CANONICAL FORM ===
 ======================
@@ -56,8 +56,7 @@ Iterations: 3
 Variables: [ 2,000, 0,000, 1,000 ]
 
 --- End Node #1 ---
-[INCUMBENT] value=13 (user-sense), min-form=-13 at node #1 with 0 bound(s)
+[INCUMBENT] value=13 at node #1 with 0 bound(s)
 
 === BEST CANDIDATE SUMMARY ===
 Incumbent objective = 13
-x* = [ 2, 0, 1 ]

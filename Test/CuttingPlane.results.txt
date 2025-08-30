@@ -5,7 +5,7 @@ Message   : Integer optimum found via cutting planes.
 Style     : Gomory fractional cuts over LP relaxations
 Objective : 2,000
 Iterations: 1
-SolveTime : 29,559 ms
+SolveTime : 25,095 ms
 
 x*        : [ 0,000, 2,000 ]
 
@@ -24,8 +24,6 @@ m=1, n=3, Objective=Maximize, RequiresPhaseI=False
 
 === PHASE II (optimize original objective) ===
 ==============================================
-[Iter 1] Enter j=1, Leave row=1  min(r)=0,000 max(r)=1,000  y≈[0,000]
-[Iter 2] Enter j=2, Leave row=1  min(r)=-0,500 max(r)=0,500  y≈[0,500]
-[Iter 3] Optimal. Obj=2,000  min(r)=-1,000 max(r)=0,000  y≈[1,000]
+[Iter 1] Optimal. Obj=2,000  min(r)=-1,000 max(r)=0,000  y≈[1,000]
 
 

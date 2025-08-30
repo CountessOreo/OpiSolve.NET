@@ -1,0 +1,24 @@
+=== OPTISOLVER.NET RESULT ===
+Algorithm : Revised Simplex (Two-Phase)
+Status    : Unbounded
+Message   : LP relaxation is unbounded.
+Style     : Revised (product form & price-out)
+Objective : 0,000
+Iterations: 0
+SolveTime : 0,000 ms
+
+
+=== CANONICAL FORM & ITERATIONS ===
+
+=== REVISED SIMPLEX: CANONICAL FORM ===
+=======================================
+m=1, n=4, Objective=Maximize, RequiresPhaseI=True
+
+=== PHASE I (min sum of artificials) ===
+========================================
+[Iter 1] Optimal. Obj=0,000  min(r)=0,000 max(r)=1,000  y≈[0,000]
+Phase I objective: 0,000
+
+=== PHASE II (optimize original objective) ===
+==============================================
+

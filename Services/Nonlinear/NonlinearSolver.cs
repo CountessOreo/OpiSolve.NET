@@ -177,17 +177,18 @@ namespace OptiSolver.NET.Services.Nonlinear
             }
 
             var result = SolutionResult.CreateOptimal(
-                objectiveValue: fx,
+                objectiveValue: fx,              // already user-sense
                 variableValues: new[] { x },
-                iterations: iter,
-                algorithm: AlgorithmName,
+                iterations: iter + 1,
+                algorithm: "Nonlinear 1D (Projected GD)",
                 solveTimeMs: (DateTime.UtcNow - started).TotalMilliseconds,
                 message: "Nonlinear 1D optimization finished."
             );
 
             // Preserve both keys to match your existing OutputWriter expectations
-            result.Info["IterationLog"] = log.ToString();
-            result.Info["Log"] = log.ToString();
+            result.ObjectiveSense = ObjectiveType.Minimize;
+            result.Info["Style"] = "Projected Gradient Descent";
+            result.Info["IterationLog"] = log.ToString();   
 
             // Fill some "LP-like" extras to keep OutputWriter and UI happy
             result.ReducedCosts = null;

@@ -1,0 +1,12 @@
+
+=== REVISED SIMPLEX: CANONICAL FORM ===
+=======================================
+m=1, n=4, Objective=Maximize, RequiresPhaseI=True
+
+=== PHASE I (min sum of artificials) ===
+========================================
+[Iter 1] Optimal. Obj=0,000  min(r)=0,000 max(r)=1,000  y≈[0,000]
+Phase I objective: 0,000
+
+=== PHASE II (optimize original objective) ===
+==============================================

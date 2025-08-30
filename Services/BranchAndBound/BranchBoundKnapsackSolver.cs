@@ -197,11 +197,9 @@ namespace OptiSolver.NET.Services.BranchAndBound
                 var x = bestTake.Select(t => t ? 1.0 : 0.0).ToArray();
                 var value = x.Select((t, i) => t * items[i].Value).Sum();
 
-                // Store in min-form so writer flips for Max to user-sense correctly
-                double objectiveRaw = (model.ObjectiveType == ObjectiveType.Maximize) ? -value : value;
 
                 var result = SolutionResult.CreateOptimal(
-                    objectiveValue: objectiveRaw,
+                    objectiveValue: value,
                     variableValues: x,
                     iterations: _explored,
                     algorithm: AlgorithmName,

@@ -81,18 +81,12 @@ namespace OptiSolver.NET.Services.Base
         /// </summary>
         public double GetDisplayObjective()
         {
-            if (double.IsNaN(ObjectiveValue))
-                return double.NaN;
-
-            var sense = ResolveSense();
-            return sense == ObjectiveType.Maximize ? -ObjectiveValue : ObjectiveValue;
+            // Solvers now return user-sense directly (no flips).
+            return ObjectiveValue;
         }
 
-        /// <summary>
-        /// Convenience for formatted printing in one call.
-        /// </summary>
         public string GetDisplayObjectiveRounded() =>
-            double.IsNaN(ObjectiveValue) ? "NaN" : DisplayHelper.Round3(GetDisplayObjective());
+            double.IsNaN(ObjectiveValue) ? "NaN" : DisplayHelper.Round3(ObjectiveValue);
 
         public override string ToString()
         {
@@ -102,7 +96,7 @@ namespace OptiSolver.NET.Services.Base
 
             if (IsOptimal || HasAlternative)
             {
-                sb += $"Objective: {GetDisplayObjective():F6}\n";
+                sb += $"Objective: {ObjectiveValue:F6}\n";
                 if (VariableValues != null)
                     sb += $"x*: [{string.Join(", ", VariableValues.Select(v => v.ToString("F6")))}]\n";
                 if (HasAlternateOptima || HasAlternative)
